@@ -48,26 +48,42 @@ const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 /* ------------------------------------------------------------------ */
 
 function TrainingFloor() {
+  const size = 80;           // world units (wide enough for camera)
+  const majorDiv = 16;       // number of big squares across
+  const minorPerMajor = 4;   // minor lines inside each big square
+  const y = 0;
+
+  const groupRef = React.useRef<THREE.Group>(null);
+
+  // tweak materials after creation (opacity)
+  useEffect(() => {
+    if (!groupRef.current) return;
+    groupRef.current.traverse((o) => {
+      const mat = (o as any).material as THREE.Material | undefined;
+      if (mat && 'opacity' in mat) {
+        (mat as any).transparent = true;
+        (mat as any).opacity = 0.9;
+        (mat as any).depthWrite = false;
+      }
+      o.frustumCulled = false;
+    });
+  }, []);
+
   return (
-    <group>
-      {/* Crisp infinite grid (no orange plane, no glow, no perimeter) */}
-      <Grid
-        args={[FLOOR_W, FLOOR_D]}
-        position={[0, 0.0001, 0]}
+    <group ref={groupRef} name="FloorGrid">
+      {/* Major grid (brighter) */}
+      <gridHelper
+        args={[size, majorDiv, 0xffffff, 0x9ca3af]}
+        position={[0, y - 0.0005, 0]}
         rotation={[-Math.PI / 2, 0, 0]}
-        cellSize={0.5}
-        cellThickness={1.0}
-        sectionSize={2.5}
-        sectionThickness={2.0}
-        infiniteGrid
-        followCamera={false}
-        fadeDistance={0}
-        fadeStrength={5}
-        cellColor="#6b7280"
-        sectionColor="#ffffff"
+      />
+      {/* Minor grid (subtle) */}
+      <gridHelper
+        args={[size, majorDiv * minorPerMajor, 0x6b7280, 0x374151]}
+        position={[0, y - 0.0006, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
       />
 
-      {/* Tight contact shadows for depth */}
       <ContactShadows
         position={[0, 0.002, 0]}
         opacity={0.35}
@@ -80,6 +96,7 @@ function TrainingFloor() {
     </group>
   );
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Scene                                                               */
