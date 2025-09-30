@@ -1,7 +1,7 @@
 // src/components/ThreeView.tsx
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, ContactShadows } from "@react-three/drei";
+import { OrbitControls, Grid, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 import FBXModel from "./FBXModel";
 import SimpleGraph from "./SimpleGraph";
@@ -44,130 +44,51 @@ const joinPath = (a: string, b: string) =>
 const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 
 /* ------------------------------------------------------------------ */
-/* Training Floor (bounded, measurement-driven)                        */
+/* Training Floor                                                      */
 /* ------------------------------------------------------------------ */
 
-/** Build line vertices for a rectangular grid in XZ (Y up). */
-function useRectGridVertices(w: number, d: number, step: number) {
-  return useMemo(() => {
-    const hw = w / 2;
-    const hd = d / 2;
-    const verts: number[] = [];
-
-    // Lines parallel to X (varying Z)
-    for (let z = -hd; z <= hd + 1e-6; z += step) {
-      verts.push(-hw, 0, z, hw, 0, z);
-    }
-    // Lines parallel to Z (varying X)
-    for (let x = -hw; x <= hw + 1e-6; x += step) {
-      verts.push(x, 0, -hd, x, 0, hd);
-    }
-    return new Float32Array(verts);
-  }, [w, d, step]);
-}
-
-function BoundedGrid({
-  width,
-  depth,
-  major = 2,
-  minor = 0.5,
-}: {
-  width: number;
-  depth: number;
-  major?: number;
-  minor?: number;
-}) {
-  const minorVerts = useRectGridVertices(width, depth, minor);
-  const majorVerts = useRectGridVertices(width, depth, major);
-
-  const perimeter = useMemo(() => {
-    const hw = width / 2;
-    const hd = depth / 2;
-    return new Float32Array([
-      -hw, 0, -hd, hw, 0, -hd,
-      hw, 0, -hd, hw, 0, hd,
-      hw, 0, hd, -hw, 0, hd,
-      -hw, 0, hd, -hw, 0, -hd,
-    ]);
-  }, [width, depth]);
-
-  return (
-    <group name="BoundedGrid">
-      {/* Minor grid (very subtle) */}
-      <lineSegments>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            count={minorVerts.length / 3}
-            array={minorVerts}
-            itemSize={3}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial color={0x9aa3ad} transparent opacity={0.22} depthWrite={false} />
-      </lineSegments>
-
-      {/* Major grid (slightly stronger) */}
-      <lineSegments>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            count={majorVerts.length / 3}
-            array={majorVerts}
-            itemSize={3}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial color={0xdfe7f0} transparent opacity={0.38} depthWrite={false} />
-      </lineSegments>
-
-      {/* Perimeter */}
-      <lineSegments>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            count={perimeter.length / 3}
-            array={perimeter}
-            itemSize={3}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial color={0xffffff} transparent opacity={0.45} depthWrite={false} />
-      </lineSegments>
-    </group>
-  );
-}
-
-function OriginCross() {
-  // Short neutral cross at the origin (professional, not neon)
-  const len = 1.2;
-  const verts = new Float32Array([
-    -len, 0, 0, len, 0, 0,
-    0, 0, -len, 0, 0, len,
-  ]);
-  return (
-    <lineSegments position={[0, 0.001, 0]}>
-      <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          count={verts.length / 3}
-          array={verts}
-          itemSize={3}
-        />
-      </bufferGeometry>
-      <lineBasicMaterial color={0xe5e7eb} transparent opacity={0.6} depthWrite={false} />
-    </lineSegments>
-  );
-}
-
 function TrainingFloor() {
-  return (
-    <group>
-      <BoundedGrid width={FLOOR_W} depth={FLOOR_D} major={2} minor={0.5} />
+  const size = 80;           // world units (wide enough for camera)
+  const majorDiv = 16;       // number of big squares across
+  const minorPerMajor = 4;   // minor lines inside each big square
+  const y = 0;
 
-      {/* Tight, toned-down contact shadow */}
+  const groupRef = React.useRef<THREE.Group>(null);
+
+  // tweak materials after creation (opacity)
+  useEffect(() => {
+    if (!groupRef.current) return;
+    groupRef.current.traverse((o) => {
+      const mat = (o as any).material as THREE.Material | undefined;
+      if (mat && 'opacity' in mat) {
+        (mat as any).transparent = true;
+        (mat as any).opacity = 0.9;
+        (mat as any).depthWrite = false;
+      }
+      o.frustumCulled = false;
+    });
+  }, []);
+
+  return (
+    <group ref={groupRef} name="FloorGrid">
+      {/* Major grid (brighter) */}
+      <gridHelper
+        args={[size, majorDiv, 0xffffff, 0x9ca3af]}
+        position={[0, y - 0.0005, 0]}
+        rotation={[0,0,0]}
+      />
+      {/* Minor grid (subtle) */}
+      <gridHelper
+        args={[size, majorDiv * minorPerMajor, 0x6b7280, 0x374151]}
+        position={[0, y - 0.0006, 0]}
+        rotation={[0, 0, 0]}
+      />
+
       <ContactShadows
         position={[0, 0.002, 0]}
-        opacity={0.18}
-        scale={Math.max(FLOOR_W, FLOOR_D) + 2}
-        blur={3.6}
+        opacity={0.35}
+        scale={Math.max(FLOOR_W, FLOOR_D) + 1.6}
+        blur={2.8}
         far={10}
         resolution={1024}
         frames={1}
@@ -175,6 +96,7 @@ function TrainingFloor() {
     </group>
   );
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Scene                                                               */
@@ -189,16 +111,15 @@ function Scene({
   time: number;
   onReadyDuration: (dur: number) => void;
 }) {
-  // Neutral, professional lighting (no color tint)
+  const axes = useMemo(() => new THREE.AxesHelper(1.5), []);
   return (
     <>
-      <hemisphereLight intensity={0.5} groundColor="#0f141a" />
-      <ambientLight intensity={0.2} />
-      <directionalLight position={[6, 8, 6]} intensity={0.85} color="#ffffff" />
-      <directionalLight position={[-6, 6, -4]} intensity={0.35} color="#ffffff" />
+      <hemisphereLight intensity={0.7} groundColor="#0d0f13" />
+      <ambientLight intensity={0.25} />
+      <directionalLight position={[6, 10, 6]} intensity={1.05} color="#ffd1a3" />
 
       <TrainingFloor />
-      <OriginCross />
+      <primitive object={axes} position={[0, 0.01, 0]} />
 
       {fbxUrl && (
         <FBXModel
@@ -951,10 +872,9 @@ export default function ThreeView() {
           right: 0,
           top: 0,
           bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 ? dockPx : 0,
-          background: "#0e1114",
         }}
         dpr={isCompact ? [1, 1.25] : [1, 2]}
-        camera={{ position: [4, 2.8, 6], fov: 45 }}
+        camera={{ position: [4, 3, 6], fov: 45 }}
         gl={{ antialias: true, powerPreference: isCompact ? "low-power" : "high-performance" }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
@@ -964,17 +884,7 @@ export default function ThreeView() {
         }}
       >
         <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} />
-
-        {/* Professional-feel camera constraints */}
-        <OrbitControls
-          enableDamping
-          dampingFactor={0.1}
-          minPolarAngle={Math.PI * 0.05}
-          maxPolarAngle={Math.PI * 0.48}
-          minDistance={3}
-          maxDistance={12}
-          enablePan={false}
-        />
+        <OrbitControls enableDamping dampingFactor={0.08} />
 
         {/* In-3D graph panels */}
         {panelMode === "in3d" && showMainGraph && series && selectedChannel && (
@@ -1126,22 +1036,23 @@ export default function ThreeView() {
         </div>
       )}
 
-      {/* Theme & polish (flatter, restrained) */}
+      {/* Theme & polish */}
       <style>{`
         .toolbar, .panel-wrap, .select, .btn {
           font-family: Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
         }
         :root {
-          --bg-0: #0e1114;
-          --bg-1: #12171d;
-          --panel: rgba(16,20,26,0.70);
+          --bg-0: #0b0e12;
+          --bg-1: #0f141a;
+          --panel: rgba(14,18,23,0.68);
           --border: rgba(255,255,255,0.08);
           --border-strong: rgba(255,255,255,0.12);
           --text: #e6edf7;
           --muted: #cfd6e2;
           --accent: #e5812b;
           --accent-deep: #cf6a14;
-          --shadow: 0 10px 28px rgba(0,0,0,0.35);
+          --glow: rgba(229,129,43,0.45);
+          --shadow: 0 12px 40px rgba(0,0,0,0.45);
         }
 
         .toolbar {
@@ -1149,10 +1060,12 @@ export default function ThreeView() {
           display: flex; flex-wrap: wrap; align-items: center;
           gap: 12px; row-gap: 10px; padding: 12px 14px;
           border-radius: 14px;
-          background: linear-gradient(180deg, rgba(18,22,28,0.82), rgba(12,15,20,0.62));
-          backdrop-filter: blur(8px);
+          background:
+            radial-gradient(900px 140px at 10% -60%, rgba(229,129,43,0.09), transparent 65%),
+            linear-gradient(180deg, rgba(18,22,28,0.82), rgba(12,15,20,0.62));
+          backdrop-filter: saturate(1.15) blur(10px);
           border: 1px solid var(--border);
-          box-shadow: var(--shadow);
+          box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.06);
           z-index: 10; pointer-events: auto; min-height: 64px;
         }
 
@@ -1160,11 +1073,11 @@ export default function ThreeView() {
         .brand img {
           width: var(--brand-img); height: var(--brand-img); object-fit: contain;
           border-radius: 50%;
-          box-shadow: 0 0 0 1px rgba(255,255,255,0.10), 0 4px 14px rgba(0,0,0,0.30);
+          box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 6px 18px rgba(0,0,0,0.35);
         }
         .brand .name {
           font-weight: 800; letter-spacing: 0.06em; color: var(--text);
-          font-size: var(--brand-text);
+          font-size: var(--brand-text); text-shadow: 0 1px 0 rgba(0,0,0,0.35);
         }
 
         .ctrl { display: flex; align-items: center; gap: 6px; }
@@ -1183,6 +1096,7 @@ export default function ThreeView() {
           outline: none;
           height: 32px;
           box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+          transition: border-color .18s ease, box-shadow .18s ease, transform .06s ease;
           background-image:
             linear-gradient(180deg, transparent 0 50%, rgba(255,255,255,0.02) 50% 100%),
             radial-gradient(circle at right 12px center, var(--accent) 0 2px, transparent 3px);
@@ -1198,8 +1112,8 @@ export default function ThreeView() {
         }
         .btn.primary {
           background: linear-gradient(180deg, var(--accent), var(--accent-deep));
-          color: #0e1114; border-color: rgba(255,180,120,0.9);
-          font-weight: 700;
+          color: #0b0e12; border-color: rgba(255,180,120,0.9);
+          font-weight: 700; box-shadow: 0 6px 24px var(--glow);
         }
 
         .slider {
@@ -1224,7 +1138,7 @@ export default function ThreeView() {
           pointer-events: auto; border-radius: 14px;
           background: linear-gradient(180deg, rgba(14,18,23,0.66), rgba(10,13,17,0.58));
           border: 1px solid var(--border);
-          box-shadow: var(--shadow);
+          box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.04);
         }
 
         @media (max-width: 900px), (max-height: 700px) {
