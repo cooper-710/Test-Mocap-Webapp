@@ -56,15 +56,15 @@ function TrainingFloor() {
         position={[0, 0.0001, 0]}
         rotation={[-Math.PI / 2, 0, 0]}
         cellSize={0.5}
-        cellThickness={0.15}
+        cellThickness={1.0}
         sectionSize={2.5}
-        sectionThickness={0.8}
+        sectionThickness={2.0}
         infiniteGrid
         followCamera={false}
-        fadeDistance={40}
-        fadeStrength={2.5}
-        cellColor="rgba(180,200,220,0.16)"
-        sectionColor="rgba(255,255,255,0.22)"
+        fadeDistance={0}
+        fadeStrength={5}
+        cellColor="#6b7280"
+        sectionColor="#ffffff"
       />
 
       {/* Tight contact shadows for depth */}
