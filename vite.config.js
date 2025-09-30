@@ -1,9 +1,9 @@
+// vite.config.js
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const base = process.env.BASE_PATH || "/";
-
 export default defineConfig({
-  base,
   plugins: [react()],
+  base: "/Test-Mocap-Webapp/",   // <-- GH Pages base path
+  build: { outDir: "dist" }
 });
