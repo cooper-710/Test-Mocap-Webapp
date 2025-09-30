@@ -1,7 +1,7 @@
 // src/components/ThreeView.tsx
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Grid, Line, ContactShadows } from "@react-three/drei";
+import { OrbitControls, Grid, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 import FBXModel from "./FBXModel";
 import SimpleGraph from "./SimpleGraph";
@@ -48,62 +48,26 @@ const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 /* ------------------------------------------------------------------ */
 
 function TrainingFloor() {
-  const halfW = FLOOR_W / 2;
-  const halfD = FLOOR_D / 2;
-
-  const boundaryPoints = useMemo(
-    () => [
-      [-halfW, 0, -halfD],
-      [halfW, 0, -halfD],
-      [halfW, 0, halfD],
-      [-halfW, 0, halfD],
-      [-halfW, 0, -halfD],
-    ],
-    [halfW, halfD]
-  );
-
   return (
     <group>
-      {/* Matte base plane */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.001, 0]}>
-        <planeGeometry args={[FLOOR_W, FLOOR_D]} />
-        <meshStandardMaterial color="#0b0e12" roughness={1} metalness={0} />
-      </mesh>
-
-      {/* Localized grid INSIDE the boundary */}
+      {/* Crisp infinite grid (no orange plane, no glow, no perimeter) */}
       <Grid
         args={[FLOOR_W, FLOOR_D]}
-        position={[0, 0.0004, 0]}
+        position={[0, 0.0001, 0]}
         rotation={[-Math.PI / 2, 0, 0]}
         cellSize={0.5}
-        cellThickness={0.22}
+        cellThickness={0.15}
         sectionSize={2.5}
-        sectionThickness={1.05}
-        infiniteGrid={false}
+        sectionThickness={0.8}
+        infiniteGrid
         followCamera={false}
-        fadeDistance={0}
-        fadeStrength={0}
-        cellColor="rgba(142,168,194,0.18)"
-        sectionColor="rgba(229,129,43,0.26)"
+        fadeDistance={40}
+        fadeStrength={2.5}
+        cellColor="rgba(180,200,220,0.16)"
+        sectionColor="rgba(255,255,255,0.22)"
       />
 
-      {/* Orange perimeter */}
-      <Line
-        points={boundaryPoints as unknown as [number, number, number][]}
-        color="#E5812B"
-        lineWidth={1.4}
-        transparent
-        opacity={0.95}
-        toneMapped={false}
-      />
-
-      {/* Soft inner glow around edges */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.0002, 0]}>
-        <planeGeometry args={[FLOOR_W * 0.985, FLOOR_D * 0.985]} />
-        <meshBasicMaterial transparent opacity={0.18} color="#E5812B" />
-      </mesh>
-
-      {/* Tight contact shadows */}
+      {/* Tight contact shadows for depth */}
       <ContactShadows
         position={[0, 0.002, 0]}
         opacity={0.35}
