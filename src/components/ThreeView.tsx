@@ -1,7 +1,11 @@
 // src/components/ThreeView.tsx
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, ContactShadows } from "@react-three/drei";
+import {
+  OrbitControls,
+  ContactShadows,
+  PerformanceMonitor,
+} from "@react-three/drei";
 import * as THREE from "three";
 import FBXModel from "./FBXModel";
 import SimpleGraph from "./SimpleGraph";
@@ -17,6 +21,7 @@ type SeriesPoint = { t?: number; value: number };
 type Mode = "player" | "admin";
 type Layout = "right" | "bottom";
 type PanelMode = "docked" | "in3d";
+type GridDensity = "high" | "low";
 
 type PlayerManifest = {
   player: string;
@@ -33,118 +38,92 @@ const isBrowser = typeof window !== "undefined";
 /** Suggested players for the dropdown (you can extend via URL ?players=A,B,C) */
 const DEFAULT_PLAYERS = ["Pete Alonso"];
 
-/** Training floor dimensions (meters-ish) */
+/** Training floor nominal size */
 const FLOOR_W = 10;
 const FLOOR_D = 6;
 
-/** Base-URL helper for GitHub Pages (and still fine locally/Cloudflare) */
+/** Base-URL helper (Vite) */
 const BASE_URL: string = import.meta.env.BASE_URL;
 const joinPath = (a: string, b: string) =>
   `${a.replace(/\/+$/, "")}/${b.replace(/^\/+/, "")}`;
 const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 
 /* ------------------------------------------------------------------ */
-/* Bounded grid floor                                                  */
+/* Utilities                                                           */
 /* ------------------------------------------------------------------ */
 
-/** Build line vertices for a rectangular grid in XZ (Y up). */
-function useRectGridVertices(w: number, d: number, step: number) {
-  return useMemo(() => {
-    const hw = w / 2;
-    const hd = d / 2;
-    const verts: number[] = [];
-
-    // Lines parallel to X (varying Z)
-    for (let z = -hd; z <= hd + 1e-6; z += step) {
-      verts.push(-hw, 0, z, hw, 0, z);
-    }
-    // Lines parallel to Z (varying X)
-    for (let x = -hw; x <= hw + 1e-6; x += step) {
-      verts.push(x, 0, -hd, x, 0, hd);
-    }
-    return new Float32Array(verts);
-  }, [w, d, step]);
+function metricShortName(k: string): string {
+  // Trim to last 1–2 path parts and abbreviate a few common tokens
+  const map: Record<string, string> = {
+    CenterOfGravity: "CoG",
+    Velocity: "Vel",
+    Acceleration: "Acc",
+    Rotation: "Rot",
+    Angular: "Ang",
+  };
+  const tail = k.split("/").filter(Boolean).slice(-2);
+  const pretty = tail
+    .join(" / ")
+    .replace(/_/g, " ")
+    .split(" ")
+    .map((w) => map[w] ?? w)
+    .join(" ");
+  return pretty;
 }
 
-function BoundedGrid({
-  width,
-  depth,
-  major = 1,      // 1m major lines
-  minor = 0.5,    // 0.5m minor lines (very subtle)
-}: {
-  width: number;
-  depth: number;
-  major?: number;
-  minor?: number;
-}) {
-  const minorVerts = useRectGridVertices(width, depth, minor);
-  const majorVerts = useRectGridVertices(width, depth, major);
+/* ------------------------------------------------------------------ */
+/* Training Floor (toned + fog-friendly)                               */
+/* ------------------------------------------------------------------ */
 
-  const perimeter = useMemo(() => {
-    const hw = width / 2;
-    const hd = depth / 2;
-    return new Float32Array([
-      -hw, 0, -hd, hw, 0, -hd,
-      hw, 0, -hd, hw, 0,  hd,
-      hw, 0,  hd, -hw, 0,  hd,
-      -hw, 0,  hd, -hw, 0, -hd,
-    ]);
-  }, [width, depth]);
+function TrainingFloor({ density }: { density: GridDensity }) {
+  const size = 80;
+  const majorDiv = 14;
+  const minorPerMajor = density === "high" ? 4 : 2;
+  const y = 0;
+
+  const majorColor = new THREE.Color("#9aa2ad"); // ~0.22 on dark
+  majorColor.convertLinearToSRGB();
+  const minorColor = new THREE.Color("#3b424c"); // ~0.08 on dark
+  minorColor.convertLinearToSRGB();
+
+  const groupRef = useRef<THREE.Group>(null);
+
+  useEffect(() => {
+    if (!groupRef.current) return;
+    groupRef.current.traverse((o) => {
+      const mat = (o as any).material as THREE.Material | undefined;
+      if (mat && "opacity" in mat) {
+        (mat as any).transparent = true;
+        (mat as any).opacity = (o as any).userData?.opacity ?? 1;
+        (mat as any).depthWrite = false;
+      }
+      o.frustumCulled = false;
+    });
+  }, [density]);
 
   return (
-    <group name="BoundedGrid">
-      {/* Minor */}
-      <lineSegments position={[0, -0.0005, 0]}>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            count={minorVerts.length / 3}
-            array={minorVerts}
-            itemSize={3}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial color={0x9aa3ad} transparent opacity={0.12} depthWrite={false} />
-      </lineSegments>
+    <group ref={groupRef} name="FloorGrid">
+      {/* Major grid (slightly brighter) */}
+      <gridHelper
+        args={[size, majorDiv, majorColor, majorColor]}
+        position={[0, y - 0.0005, 0]}
+        rotation={[0, 0, 0]}
+        userData={{ opacity: 0.22 }}
+      />
+      {/* Minor grid (very subtle) */}
+      <gridHelper
+        args={[size, majorDiv * minorPerMajor, minorColor, minorColor]}
+        position={[0, y - 0.0006, 0]}
+        rotation={[0, 0, 0]}
+        userData={{ opacity: 0.08 }}
+      />
 
-      {/* Major */}
-      <lineSegments position={[0, -0.0006, 0]}>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            count={majorVerts.length / 3}
-            array={majorVerts}
-            itemSize={3}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial color={0xe5e7eb} transparent opacity={0.34} depthWrite={false} />
-      </lineSegments>
-
-      {/* Perimeter */}
-      <lineSegments position={[0, -0.0007, 0]}>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            count={perimeter.length / 3}
-            array={perimeter}
-            itemSize={3}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial color={0xffffff} transparent opacity={0.42} depthWrite={false} />
-      </lineSegments>
-    </group>
-  );
-}
-
-function TrainingFloor() {
-  return (
-    <group>
-      <BoundedGrid width={FLOOR_W} depth={FLOOR_D} major={1} minor={0.5} />
-      {/* Tight, neutral contact shadow */}
+      {/* Soft contact to anchor the character without drama */}
       <ContactShadows
         position={[0, 0.002, 0]}
-        opacity={0.16}
-        scale={Math.max(FLOOR_W, FLOOR_D) + 1.5}
-        blur={3.2}
+        opacity={0.25}
+        scale={Math.max(FLOOR_W, FLOOR_D) + 1.6}
+        blur={2.6}
         far={10}
         resolution={1024}
         frames={1}
@@ -161,20 +140,26 @@ function Scene({
   fbxUrl,
   time,
   onReadyDuration,
+  gridDensity,
 }: {
   fbxUrl: string | null;
   time: number;
   onReadyDuration: (dur: number) => void;
+  gridDensity: GridDensity;
 }) {
-  // Neutral lighting; no color cast
+  const axes = useMemo(() => new THREE.AxesHelper(1.5), []);
   return (
     <>
-      <hemisphereLight intensity={0.45} groundColor="#12171d" />
-      <ambientLight intensity={0.18} />
-      <directionalLight position={[6, 7.5, 6]} intensity={0.9} color="#ffffff" />
-      <directionalLight position={[-5, 6, -4]} intensity={0.35} color="#ffffff" />
+      {/* Subtle filmic lighting */}
+      <hemisphereLight intensity={0.7} groundColor="#0d0f13" />
+      <ambientLight intensity={0.25} />
+      <directionalLight position={[6, 10, 6]} intensity={0.95} color="#ffd1a3" />
+      {/* Scene fog for depth separation */}
+      {/* @ts-ignore: drei/three attaches fine */}
+      <fog attach="fog" args={["#0e1114", 9, 24]} />
 
-      <TrainingFloor />
+      <TrainingFloor density={gridDensity} />
+      <primitive object={axes} position={[0, 0.01, 0]} />
 
       {fbxUrl && (
         <FBXModel
@@ -208,7 +193,7 @@ export default function ThreeView() {
   const initialPlayer = decodedParamPlayer || DEFAULT_PLAYERS[0];
   const isPlayerLocked = params.get("lock") === "1" || (initialMode === "player" && !!paramPlayerRaw);
 
-  // Optional list of players from ?players=A,B,C (only used if NOT locked)
+  // Optional players from URL
   const playersFromUrl =
     (params.get("players")?.split(",").map((s) => s.trim()).filter(Boolean) ?? []) as string[];
   const initialPlayers = useMemo(() => {
@@ -225,6 +210,7 @@ export default function ThreeView() {
   const [session, setSession] = useState<string | null>(urlSession);
   const [players, setPlayers] = useState<string[]>(initialPlayers);
 
+  // keep playerName in sync with URL when locked
   useEffect(() => {
     if (!isPlayerLocked || !paramPlayerRaw) return;
     const decoded = decodeURIComponent(paramPlayerRaw.replace(/\+/g, " "));
@@ -252,6 +238,9 @@ export default function ThreeView() {
   const [duration, setDuration] = useState(0);
   const [snapFrames, setSnapFrames] = useState(true);
 
+  /* Density auto-downgrade on weak devices */
+  const [gridDensity, setGridDensity] = useState<GridDensity>("high");
+
   /* Data (multi-sheet) */
   const [rowsBySheet, setRowsBySheet] = useState<RowsBySheet | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
@@ -272,7 +261,7 @@ export default function ThreeView() {
   const [graphDock, setGraphDock] = useState<Layout>("bottom");
   const [panelMode, setPanelMode] = useState<PanelMode>("docked");
 
-  // Player-editable visibility (persisted)
+  // Visibility (persisted)
   const storedShowMain = isBrowser ? localStorage.getItem("seq_showMainGraph") : null;
   const storedShowSecond =
     isBrowser ? localStorage.getItem("seq_showSecondGraph") ?? localStorage.getItem("seq_showMiniGraph") : null;
@@ -289,7 +278,7 @@ export default function ThreeView() {
     localStorage.removeItem("seq_showMiniGraph");
   }, [showSecond]);
 
-  // 3D panel positions
+  // In-3D panel positions
   const [posMain, setPosMain] = useState<[number, number, number]>([3.8, 0.02, -2.6]);
   const [posSecond, setPosSecond] = useState<[number, number, number]>([1.0, 0.02, -4.2]);
 
@@ -562,7 +551,7 @@ export default function ThreeView() {
     return { pts: normalized, dur };
   }
 
-  /* Recompute sheet/channels/series when data changes */
+  /* Recompute sheet/channels/series */
   useEffect(() => {
     if (!rowsBySheet || !sheet) return;
     const newRows = rowsBySheet[sheet];
@@ -606,7 +595,7 @@ export default function ThreeView() {
     setTime((t) => (dur > 0 ? (t % dur + dur) % dur : 0));
   }, []);
 
-  /* Playback loop (smooth with snap-to-frames accumulator) */
+  /* Playback loop with frame snap */
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
   const subFrameAccRef = useRef<number>(0);
@@ -668,7 +657,7 @@ export default function ThreeView() {
     return cancelLoop;
   }, [startLoop, cancelLoop]);
 
-  /* Seek from graphs (map JSON time → FBX time) */
+  /* Seek from graphs */
   const handleGraphSeek = useCallback(
     (tJson: number) => {
       if (duration > 0 && jsonDuration > 0) {
@@ -684,10 +673,11 @@ export default function ThreeView() {
     [duration, jsonDuration, snapFrames]
   );
 
+  /* Formatting */
   const fmt = (s: number) => `${s.toFixed(2)}s`;
 
   const toolbarVars = (isPlayer
-    ? ({ ["--brand-img" as any]: "56px", ["--brand-text" as any]: "24px" })
+    ? ({ ["--brand-img" as any]: "48px", ["--brand-text" as any]: "22px" })
     : ({ ["--brand-img" as any]: "28px", ["--brand-text" as any]: "18px" })) as React.CSSProperties;
 
   /* UI sizing */
@@ -711,212 +701,276 @@ export default function ThreeView() {
   );
   const perGraphHeight = Math.max(isCompact ? 100 : 120, computedSlot);
 
+  /* Keyboard stepper for sliders (a11y) */
+  const stepTime = snapFrames ? 1 / FPS : Math.max(0.001, (duration || 1) / 1000);
+  const onTimeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (duration <= 0) return;
+    const mult = e.shiftKey ? 10 : 1;
+    if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const t = Math.min(duration, time + stepTime * mult);
+      setTime(snapFrames ? Math.round(t * FPS) / FPS : t);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const t = Math.max(0, time - stepTime * mult);
+      setTime(snapFrames ? Math.round(t * FPS) / FPS : t);
+    }
+  };
+
+  const onSpeedKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const d = e.shiftKey ? 0.2 : 0.1;
+    if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setSpeed((s) => Math.min(2, +(s + d).toFixed(2)));
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+      e.preventDefault();
+      setSpeed((s) => Math.max(0.1, +(s - d).toFixed(2)));
+    }
+  };
+
   /* Render */
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden" }}>
-      {/* Top bar */}
-      <div className={`toolbar ${isPlayer ? "is-player" : "is-admin"}`} style={toolbarVars}>
-        <div className="brand" aria-label="Sequence">
-          <img src={withBase("Logo.png")} alt="Sequence logo" />
-          <span className="name">SEQUENCE</span>
-        </div>
+      {/* Top bar — three clusters: brand/session | playback | data picks */}
+      <div className={`toolbar ${isPlayer ? "is-player" : "is-admin"}`} style={toolbarVars} role="toolbar" aria-label="Sequence controls">
+        {/* Cluster: brand + session/patient */}
+        <div className="cluster left" role="group" aria-labelledby="cluster-brand">
+          <div className="brand" id="cluster-brand" aria-label="Sequence">
+            <img src={withBase("Logo.png")} alt="Sequence logo" />
+            <span className="name">SEQUENCE</span>
+          </div>
 
-        {/* Admin uploads */}
-        {mode === "admin" && (
-          <>
-            <label className="btn" style={{ cursor: "pointer" }}>
-              Upload .fbx
-              <input type="file" accept=".fbx" onChange={handleFbxFile} style={{ display: "none" }} />
-            </label>
-            <label className="btn" style={{ cursor: "pointer" }}>
-              Upload JSON
-              <input type="file" accept=".json,application/json" onChange={handleJsonFile} style={{ display: "none" }} />
-            </label>
-            <label className="btn" style={{ cursor: "pointer" }}>
-              Upload Excel
-              <input type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelFile} style={{ display: "none" }} />
-            </label>
-            <button className="btn ghost" onClick={exportCurrentJSON} disabled={!rows || rows.length === 0}>
-              Export JSON
-            </button>
-          </>
-        )}
-
-        {/* Player (pill when locked; select otherwise) */}
-        <div className="ctrl">
-          <span className="label">Player</span>
-          {isPlayerLocked ? (
-            <span className="pill" title={playerName} aria-label="Player">
-              {playerName}
-            </span>
-          ) : (
-            <select className="select" value={playerName} onChange={(e) => setPlayerName(e.target.value)} title={playerName}>
-              {players.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-
-        {/* Session picker */}
-        <div className="ctrl">
-          <span className="label">Session</span>
-          <select
-            className="select"
-            value={session ?? ""}
-            onChange={(e) => setSession(e.target.value)}
-            title={session ?? undefined}
-            disabled={!sessions.length}
-          >
-            {sessions.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Sheet picker */}
-        {sheetNames.length > 0 && (
           <div className="ctrl">
-            <span className="label">Sheet</span>
+            <span className="label">Player</span>
+            {isPlayerLocked ? (
+              <span className="pill" title={playerName} aria-label="Player">
+                {playerName}
+              </span>
+            ) : (
+              <select
+                className="select"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                title={playerName}
+                aria-label="Select player"
+              >
+                {players.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="ctrl">
+            <span className="label">Session</span>
             <select
               className="select"
-              value={sheet ?? ""}
-              onChange={(e) => setSheet(e.target.value)}
-              title={sheet ?? undefined}
+              value={session ?? ""}
+              onChange={(e) => setSession(e.target.value)}
+              title={session ?? undefined}
+              disabled={!sessions.length}
+              aria-label="Select session"
             >
-              {sheetNames.map((n) => (
-                <option key={n} value={n}>
-                  {n}
+              {sessions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
                 </option>
               ))}
             </select>
           </div>
-        )}
+        </div>
 
-        {/* Channels */}
-        {channels.length > 0 && (
-          <>
+        {/* Cluster: playback (primary) */}
+        <div className="cluster mid" role="group" aria-labelledby="cluster-playback">
+          <span className="sr-only" id="cluster-playback">Playback</span>
+
+          <div className="ctrl grow">
+            <span className="label">Time</span>
+            <input
+              className="slider"
+              type="range"
+              min={0}
+              max={Math.max(0.001, duration || 0.001)}
+              step={stepTime}
+              value={Math.min(time, duration || 0)}
+              onChange={(e) => {
+                const t = parseFloat(e.target.value);
+                setTime(snapFrames ? Math.round(t * FPS) / FPS : t);
+              }}
+              onKeyDown={onTimeKey}
+              disabled={duration <= 0}
+              style={{ width: isCompact ? 180 : 340 }}
+              aria-label="Scrub time"
+              aria-valuemin={0}
+              aria-valuemax={Math.max(0.001, duration || 0.001)}
+              aria-valuenow={Math.min(time, duration || 0)}
+            />
+            {mode === "admin" && (
+              <span className="small">{`${fmt(time)} / ${fmt(duration || 0)} • ${FPS} fps`}</span>
+            )}
+          </div>
+
+          <div className="ctrl">
+            <span className="label">Speed</span>
+            <input
+              className="slider"
+              type="range"
+              min={0.1}
+              max={2}
+              step={0.1}
+              value={speed}
+              onChange={(e) => setSpeed(parseFloat(e.target.value))}
+              onKeyDown={onSpeedKey}
+              disabled={duration <= 0}
+              style={{ width: isCompact ? 140 : 160 }}
+              aria-label="Playback speed"
+              aria-valuemin={0.1}
+              aria-valuemax={2}
+              aria-valuenow={speed}
+            />
+            <span className="small">{speed.toFixed(1)}x</span>
+          </div>
+
+          <button
+            className="btn primary"
+            onClick={() => setPlaying((p) => !p)}
+            disabled={duration <= 0}
+            aria-label={playing ? "Pause" : "Play"}
+          >
+            {playing ? "Pause" : "Play"}
+          </button>
+          <button className="btn" onClick={() => setTime(0)} disabled={duration <= 0} aria-label="Reset timeline">
+            Reset
+          </button>
+        </div>
+
+        {/* Cluster: data picks + visibility */}
+        <div className="cluster right" role="group" aria-labelledby="cluster-data">
+          <span className="sr-only" id="cluster-data">Data selection</span>
+
+          {/* Sheet picker (if multiple) */}
+          {sheetNames.length > 0 && (
             <div className="ctrl">
-              <span className="label">Main channel</span>
+              <span className="label">Sheet</span>
               <select
                 className="select"
-                value={selectedChannel ?? ""}
-                onChange={(e) => setSelectedChannel(e.target.value)}
-                title={selectedChannel ?? undefined}
+                value={sheet ?? ""}
+                onChange={(e) => setSheet(e.target.value)}
+                title={sheet ?? undefined}
+                aria-label="Select sheet"
               >
-                {channels.map((k) => (
-                  <option key={k} value={k}>
-                    {k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}
+                {sheetNames.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
                   </option>
                 ))}
               </select>
             </div>
+          )}
 
-            <div className="ctrl">
-              <span className="label">Second channel</span>
-              <select
-                className="select"
-                value={selectedChannelB ?? ""}
-                onChange={(e) => setSelectedChannelB(e.target.value)}
-                title={selectedChannelB ?? undefined}
-              >
-                {channels.map((k) => (
-                  <option key={k} value={k}>
-                    {k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </>
-        )}
+          {/* Channels */}
+          {channels.length > 0 && (
+            <>
+              <div className="ctrl">
+                <span className="label">Metric A</span>
+                <select
+                  className="select"
+                  value={selectedChannel ?? ""}
+                  onChange={(e) => setSelectedChannel(e.target.value)}
+                  title={selectedChannel ?? undefined}
+                  aria-label="Select metric A"
+                >
+                  {channels.map((k) => (
+                    <option key={k} value={k}>
+                      {metricShortName(k)}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        {/* Player toggles */}
-        <label className="toggle">
-          <input type="checkbox" checked={showMainGraph} onChange={(e) => setShowMainGraph(e.target.checked)} />
-          <span>Main graph</span>
-        </label>
-        <label className="toggle">
-          <input type="checkbox" checked={showSecond} onChange={(e) => setShowSecond(e.target.checked)} />
-          <span>Second graph</span>
-        </label>
+              <div className="ctrl">
+                <span className="label">Metric B</span>
+                <select
+                  className="select"
+                  value={selectedChannelB ?? ""}
+                  onChange={(e) => setSelectedChannelB(e.target.value)}
+                  title={selectedChannelB ?? undefined}
+                  aria-label="Select metric B"
+                >
+                  {channels.map((k) => (
+                    <option key={k} value={k}>
+                      {metricShortName(k)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
 
-        {/* Admin-only layout & snap */}
-        {mode === "admin" && (
-          <>
-            <div className="ctrl">
-              <span className="label">Layout</span>
-              <select className="select" value={graphDock} onChange={(e) => setGraphDock(e.target.value as Layout)}>
-                <option value="right">Right (stacked)</option>
-                <option value="bottom">Bottom</option>
-              </select>
-            </div>
+          {/* Visibility toggles */}
+          <label className="toggle" aria-label="Show primary graph">
+            <input
+              type="checkbox"
+              checked={showMainGraph}
+              onChange={(e) => setShowMainGraph(e.target.checked)}
+            />
+            <span>Show primary</span>
+          </label>
+          <label className="toggle" aria-label="Show secondary graph">
+            <input
+              type="checkbox"
+              checked={showSecond}
+              onChange={(e) => setShowSecond(e.target.checked)}
+            />
+            <span>Show secondary</span>
+          </label>
 
-            <div className="ctrl">
-              <span className="label">Panels</span>
-              <select className="select" value={panelMode} onChange={(e) => setPanelMode(e.target.value as PanelMode)}>
-                <option value="docked">Docked UI</option>
-                <option value="in3d">In-3D (holograms)</option>
-              </select>
-            </div>
+          {/* Admin layout & frame snap (kept, but tucked right) */}
+          {mode === "admin" && (
+            <>
+              <div className="ctrl">
+                <span className="label">Layout</span>
+                <select className="select" value={graphDock} onChange={(e) => setGraphDock(e.target.value as Layout)} aria-label="Select layout">
+                  <option value="right">Right</option>
+                  <option value="bottom">Bottom</option>
+                </select>
+              </div>
+              <div className="ctrl">
+                <span className="label">Panels</span>
+                <select className="select" value={panelMode} onChange={(e) => setPanelMode(e.target.value as PanelMode)} aria-label="Select panel mode">
+                  <option value="docked">Docked UI</option>
+                  <option value="in3d">In-3D</option>
+                </select>
+              </div>
+              <label className="toggle" aria-label="Snap playback to frames">
+                <input type="checkbox" checked={snapFrames} onChange={(e) => setSnapFrames(e.target.checked)} />
+                <span>Snap frames</span>
+              </label>
 
-            <label className="toggle">
-              <input type="checkbox" checked={snapFrames} onChange={(e) => setSnapFrames(e.target.checked)} />
-              <span>Snap to frames</span>
-            </label>
-          </>
-        )}
-
-        {/* Time slider */}
-        <div className="ctrl grow">
-          <span className="label">Time</span>
-          <input
-            className="slider"
-            type="range"
-            min={0}
-            max={Math.max(0.001, duration || 0.001)}
-            step={snapFrames ? 1 / FPS : Math.max(0.001, (duration || 1) / 1000)}
-            value={Math.min(time, duration || 0)}
-            onChange={(e) => {
-              const t = parseFloat(e.target.value);
-              setTime(snapFrames ? Math.round(t * FPS) / FPS : t);
-            }}
-            disabled={duration <= 0}
-            style={{ width: isCompact ? 180 : isPlayer ? 360 : 260 }}
-          />
-          {mode === "admin" && <span className="small">{`${fmt(time)} / ${fmt(duration || 0)} • ${FPS} fps`}</span>}
+              {/* Admin import/export */}
+              <label className="btn ghost filebtn" title="Upload .fbx" aria-label="Upload FBX">
+                Upload .fbx
+                <input type="file" accept=".fbx" onChange={handleFbxFile} />
+              </label>
+              <label className="btn ghost filebtn" title="Upload JSON" aria-label="Upload JSON">
+                Upload JSON
+                <input type="file" accept=".json,application/json" onChange={handleJsonFile} />
+              </label>
+              <label className="btn ghost filebtn" title="Upload Excel" aria-label="Upload Excel">
+                Upload Excel
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelFile} />
+              </label>
+              <button className="btn ghost" onClick={exportCurrentJSON} disabled={!rows || rows.length === 0} aria-label="Export current JSON">
+                Export JSON
+              </button>
+            </>
+          )}
         </div>
-
-        {/* Speed */}
-        <div className="ctrl">
-          <span className="label">Speed</span>
-          <input
-            className="slider"
-            type="range"
-            min={0.1}
-            max={2}
-            step={0.1}
-            value={speed}
-            onChange={(e) => setSpeed(parseFloat(e.target.value))}
-            disabled={duration <= 0}
-            style={{ width: isCompact ? 140 : 160 }}
-          />
-          <span className="small">{speed.toFixed(1)}x</span>
-        </div>
-
-        {/* Transport */}
-        <button className="btn primary" onClick={() => setPlaying((p) => !p)} disabled={duration <= 0}>
-          {playing ? "Pause" : "Play"}
-        </button>
-        <button className="btn" onClick={() => setTime(0)} disabled={duration <= 0}>
-          Reset
-        </button>
       </div>
 
-      {/* 3D + (optional) hologram panels */}
+      {/* 3D + panels */}
       <Canvas
         key={`${playerName}:${session ?? "none"}`}
         style={{
@@ -925,38 +979,33 @@ export default function ThreeView() {
           right: 0,
           top: 0,
           bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 ? dockPx : 0,
-          background: "#0e1114",
         }}
         dpr={isCompact ? [1, 1.25] : [1, 2]}
-        camera={{ position: [4, 2.8, 6], fov: 45 }}
+        camera={{ position: [4.4, 3.1, 6.2], fov: 45 }}
         gl={{ antialias: true, powerPreference: isCompact ? "low-power" : "high-performance" }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.02;
+          gl.toneMappingExposure = 1.0;
           gl.shadowMap.enabled = false;
         }}
       >
-        {/* Distance fade -> cleaner frame */}
-        <fog attach="fog" args={["#0e1114", 7, 22]} />
-
-        <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} />
-
-        {/* Intentional camera limits */}
+        <PerformanceMonitor
+          onDecline={() => setGridDensity("low")}
+          onIncline={() => setGridDensity("high")}
+        />
+        <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} gridDensity={gridDensity} />
         <OrbitControls
           enableDamping
-          dampingFactor={0.1}
-          minPolarAngle={Math.PI * 0.06}
+          dampingFactor={0.12}
+          minPolarAngle={Math.PI * 0.12}
           maxPolarAngle={Math.PI * 0.48}
-          minDistance={3}
-          maxDistance={12}
-          enablePan={false}
         />
 
         {/* In-3D graph panels */}
         {panelMode === "in3d" && showMainGraph && series && selectedChannel && (
           <GraphHoloPanel
-            title={`Signal • ${sheet ? sheet + " • " : ""}${prettyLabel(selectedChannel)}`}
+            title={`${sheet ? sheet + " • " : ""}${metricShortName(selectedChannel)}`}
             position={posMain}
             setPosition={setPosMain}
             draggable={mode === "admin"}
@@ -976,7 +1025,7 @@ export default function ThreeView() {
 
         {panelMode === "in3d" && showSecond && seriesB && selectedChannelB && (
           <GraphHoloPanel
-            title={`Signal • ${sheet ? sheet + " • " : ""}${prettyLabel(selectedChannelB)}`}
+            title={`${sheet ? sheet + " • " : ""}${metricShortName(selectedChannelB)}`}
             position={posSecond}
             setPosition={setPosSecond}
             draggable={mode === "admin"}
@@ -1028,7 +1077,7 @@ export default function ThreeView() {
                   jsonDuration={jsonDuration || 0}
                   fbxDuration={duration || 0}
                   height={perGraphHeight}
-                  title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`}
+                  title={`${sheet ? sheet + " · " : ""}${metricShortName(selectedChannel)}`}
                   yLabel="Value"
                   onSeek={handleGraphSeek}
                 />
@@ -1040,7 +1089,7 @@ export default function ThreeView() {
                   jsonDuration={jsonDuration || 0}
                   fbxDuration={duration || 0}
                   height={perGraphHeight}
-                  title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`}
+                  title={`${sheet ? sheet + " · " : ""}${metricShortName(selectedChannelB)}`}
                   yLabel="Value"
                   onSeek={handleGraphSeek}
                 />
@@ -1082,7 +1131,7 @@ export default function ThreeView() {
                 jsonDuration={jsonDuration || 0}
                 fbxDuration={duration || 0}
                 height={isCompact ? 160 : 180}
-                title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`}
+                title={`${sheet ? sheet + " · " : ""}${metricShortName(selectedChannel)}`}
                 yLabel="Value"
                 onSeek={handleGraphSeek}
               />
@@ -1094,7 +1143,7 @@ export default function ThreeView() {
                 jsonDuration={jsonDuration || 0}
                 fbxDuration={duration || 0}
                 height={isCompact ? 160 : 180}
-                title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`}
+                title={`${sheet ? sheet + " · " : ""}${metricShortName(selectedChannelB)}`}
                 yLabel="Value"
                 onSeek={handleGraphSeek}
               />
@@ -1103,50 +1152,68 @@ export default function ThreeView() {
         </div>
       )}
 
-      {/* Theme & polish (flatter, restrained) */}
+      {/* Empty state (quiet) */}
+      {!rows && (
+        <div className="empty">
+          <span>No data loaded</span>
+        </div>
+      )}
+
+      {/* Theme & polish */}
       <style>{`
         .toolbar, .panel-wrap, .select, .btn {
           font-family: Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
         }
+        .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; clip-path:inset(50%); }
+
         :root {
-          --bg-0: #0e1114;
-          --bg-1: #12171d;
-          --panel: rgba(16,20,26,0.70);
+          --bg-0: #0b0e12;
+          --bg-1: #0f141a;
+          --panel: rgba(14,18,23,0.66);
           --border: rgba(255,255,255,0.08);
           --border-strong: rgba(255,255,255,0.12);
           --text: #e6edf7;
           --muted: #cfd6e2;
           --accent: #e5812b;
           --accent-deep: #cf6a14;
-          --shadow: 0 10px 28px rgba(0,0,0,0.35);
+          --glow: rgba(229,129,43,0.35);
+          --shadow: 0 12px 40px rgba(0,0,0,0.45);
+          --focus: #6aa7ff66;
         }
 
         .toolbar {
           position: absolute; top: 12px; left: 12px; right: 12px;
-          display: flex; flex-wrap: wrap; align-items: center;
-          gap: 12px; row-gap: 10px; padding: 12px 14px;
-          border-radius: 14px;
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          align-items: center;
+          gap: 12px; padding: 10px 12px;
+          border-radius: 12px;
           background: linear-gradient(180deg, rgba(18,22,28,0.82), rgba(12,15,20,0.62));
-          backdrop-filter: blur(8px);
+          backdrop-filter: saturate(1.15) blur(10px);
           border: 1px solid var(--border);
-          box-shadow: var(--shadow);
-          z-index: 10; pointer-events: auto; min-height: 64px;
+          box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.06);
+          z-index: 10; pointer-events: auto; min-height: 62px;
         }
 
-        .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; }
+        .cluster { display:flex; align-items:center; gap: 12px; }
+        .cluster.left { justify-content:flex-start; }
+        .cluster.mid  { justify-content:center; padding: 0 6px; }
+        .cluster.right{ justify-content:flex-end; flex-wrap: wrap; }
+
+        .brand { display: flex; align-items: center; gap: 10px; margin-right: 6px; }
         .brand img {
           width: var(--brand-img); height: var(--brand-img); object-fit: contain;
           border-radius: 50%;
-          box-shadow: 0 0 0 1px rgba(255,255,255,0.10), 0 4px 14px rgba(0,0,0,0.30);
+          box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 6px 18px rgba(0,0,0,0.35);
         }
         .brand .name {
           font-weight: 800; letter-spacing: 0.06em; color: var(--text);
-          font-size: var(--brand-text);
+          font-size: var(--brand-text); text-shadow: 0 1px 0 rgba(0,0,0,0.35);
         }
 
-        .ctrl { display: flex; align-items: center; gap: 6px; }
-        .ctrl.grow { min-width: 320px; }
-        .label { font-size: 12px; color: var(--muted); opacity: 0.9; }
+        .ctrl { display: flex; align-items: center; gap: 10px; }
+        .ctrl.grow { min-width: 280px; }
+        .label { font-size: 11px; color: var(--muted); opacity: 0.9; }
         .small { font-size: 12px; color: var(--muted); opacity: 0.85; }
 
         .select {
@@ -1154,30 +1221,38 @@ export default function ThreeView() {
           background: linear-gradient(180deg, #12171e, #0f141a);
           color: var(--text);
           border: 1px solid var(--border-strong);
-          border-radius: 10px;
+          border-radius: 8px;
           padding: 6px 28px 6px 10px;
           font-size: 12px;
           outline: none;
           height: 32px;
           box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+          transition: border-color .18s ease, box-shadow .18s ease, transform .06s ease;
           background-image:
             linear-gradient(180deg, transparent 0 50%, rgba(255,255,255,0.02) 50% 100%),
             radial-gradient(circle at right 12px center, var(--accent) 0 2px, transparent 3px);
           background-repeat: no-repeat;
         }
+        .select:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 
         .btn {
           background: linear-gradient(180deg, #1b222c, #141a22);
-          color: #d7dde6; border: 1px solid var(--border-strong); border-radius: 11px;
+          color: #d7dde6; border: 1px solid var(--border-strong); border-radius: 8px;
           height: 32px; padding: 0 12px; font-size: 12px;
           display: inline-flex; align-items: center; gap: 6px;
           box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+          transition: transform .06s ease, filter .12s ease, box-shadow .12s ease;
         }
+        .btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
+        .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
         .btn.primary {
           background: linear-gradient(180deg, var(--accent), var(--accent-deep));
-          color: #0e1114; border-color: rgba(255,180,120,0.9);
-          font-weight: 700;
+          color: #0b0e12; border-color: rgba(255,180,120,0.9);
+          font-weight: 700; box-shadow: 0 6px 18px var(--glow);
         }
+        .btn.ghost { background: linear-gradient(180deg, #141a22, #11161d); }
+
+        .filebtn input[type="file"] { display:none; }
 
         .slider {
           -webkit-appearance: none; width: 160px; height: 6px; border-radius: 999px;
@@ -1185,29 +1260,38 @@ export default function ThreeView() {
           box-shadow: inset 0 1px 1px rgba(255,255,255,0.06), 0 0 0 1px var(--border);
           outline: none;
         }
+        .slider:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
 
-        .toggle { display:flex; align-items:center; gap:6px; color: var(--muted); font-size:12px; }
+        .toggle { display:flex; align-items:center; gap:8px; color: var(--muted); font-size:12px; }
         .toggle input { accent-color: var(--accent); }
 
         .pill {
           display:inline-flex; align-items:center;
-          height:32px; padding:0 10px; border-radius:10px;
+          height:32px; padding:0 10px; border-radius:8px;
           background: linear-gradient(180deg, #12171e, #0f141a);
           color: var(--text); border:1px solid var(--border-strong);
           font-size:12px;
         }
 
         .panel-wrap {
-          pointer-events: auto; border-radius: 14px;
+          pointer-events: auto; border-radius: 12px;
           background: linear-gradient(180deg, rgba(14,18,23,0.66), rgba(10,13,17,0.58));
           border: 1px solid var(--border);
-          box-shadow: var(--shadow);
+          box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.04);
+        }
+
+        .empty {
+          position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
+          padding:10px 14px; border-radius:8px; font-size:12px; color:var(--muted);
+          background: rgba(12,16,21,0.55); border:1px solid var(--border);
         }
 
         @media (max-width: 900px), (max-height: 700px) {
-          .toolbar { gap: 8px; padding: 10px 12px; }
+          .toolbar { grid-template-columns: 1fr; gap: 10px; }
+          .cluster.mid { order: 3; justify-content:flex-start; }
+          .cluster.right { order: 2; justify-content:flex-start; }
           .brand .name { display: none; }
-          .ctrl.grow { min-width: 180px; }
+          .ctrl.grow { min-width: 200px; }
           .btn { height: 30px; font-size: 12px; padding: 0 10px; }
           .select { height: 30px; font-size: 12px; }
           .small { font-size: 11px; }
