@@ -1,11 +1,7 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+// src/main.tsx
+import React from "react";
+import { createRoot } from "react-dom/client";
+import ThreeView from "./components/ThreeView";
 
-// Replace with your repo name
-export default defineConfig({
-  plugins: [react()],
-  base: '/Test-Mocap-Webapp/',   // <-- IMPORTANT: repo slug
-  build: {
-    outDir: 'dist'               // or 'docs' if you prefer the docs branch style
-  }
-})
+const root = createRoot(document.getElementById("root")!);
+root.render(<ThreeView />);
