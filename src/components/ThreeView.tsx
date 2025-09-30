@@ -31,7 +31,7 @@ const FPS = 120;
 const isBrowser = typeof window !== "undefined";
 
 /** Suggested players for the dropdown (you can extend via URL ?players=A,B,C) */
-const DEFAULT_PLAYERS = ["Player Name", "Player Name 2"];
+const DEFAULT_PLAYERS = ["Pete Alonso"];
 
 /** Training floor dimensions (meters-ish) */
 const FLOOR_W = 10;
