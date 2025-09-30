@@ -1,11 +1,7 @@
 // src/components/ThreeView.tsx
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import {
-  OrbitControls,
-  ContactShadows,
-  PerformanceMonitor,
-} from "@react-three/drei";
+import { OrbitControls, ContactShadows, PerformanceMonitor } from "@react-three/drei";
 import * as THREE from "three";
 import FBXModel from "./FBXModel";
 import SimpleGraph from "./SimpleGraph";
@@ -35,7 +31,7 @@ type PlayerManifest = {
 const FPS = 120;
 const isBrowser = typeof window !== "undefined";
 
-/** Suggested players for the dropdown (you can extend via URL ?players=A,B,C) */
+/** Suggested players for the dropdown */
 const DEFAULT_PLAYERS = ["Pete Alonso"];
 
 /** Training floor nominal size */
@@ -53,7 +49,6 @@ const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 /* ------------------------------------------------------------------ */
 
 function metricShortName(k: string): string {
-  // Trim to last 1–2 path parts and abbreviate a few common tokens
   const map: Record<string, string> = {
     CenterOfGravity: "CoG",
     Velocity: "Vel",
@@ -62,29 +57,27 @@ function metricShortName(k: string): string {
     Angular: "Ang",
   };
   const tail = k.split("/").filter(Boolean).slice(-2);
-  const pretty = tail
+  return tail
     .join(" / ")
     .replace(/_/g, " ")
     .split(" ")
     .map((w) => map[w] ?? w)
     .join(" ");
-  return pretty;
 }
 
 /* ------------------------------------------------------------------ */
-/* Training Floor (toned + fog-friendly)                               */
+/* Training Floor (toned + subtle base)                                */
 /* ------------------------------------------------------------------ */
 
 function TrainingFloor({ density }: { density: GridDensity }) {
-  const size = 80;
+  const size = 100;
   const majorDiv = 14;
   const minorPerMajor = density === "high" ? 4 : 2;
   const y = 0;
 
-  const majorColor = new THREE.Color("#9aa2ad"); // ~0.22 on dark
-  majorColor.convertLinearToSRGB();
-  const minorColor = new THREE.Color("#3b424c"); // ~0.08 on dark
-  minorColor.convertLinearToSRGB();
+  // Colors tuned for SRGB outputColorSpace
+  const majorColor = new THREE.Color("#98A3AE");
+  const minorColor = new THREE.Color("#313841");
 
   const groupRef = useRef<THREE.Group>(null);
 
@@ -103,27 +96,32 @@ function TrainingFloor({ density }: { density: GridDensity }) {
 
   return (
     <group ref={groupRef} name="FloorGrid">
-      {/* Major grid (slightly brighter) */}
+      {/* very dark matte base plane keeps the scene grounded */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, y - 0.0012, 0]}>
+        <planeGeometry args={[size, size]} />
+        <meshStandardMaterial color="#0b0f13" roughness={1} metalness={0} />
+      </mesh>
+
+      {/* major grid (thin & calm) */}
       <gridHelper
         args={[size, majorDiv, majorColor, majorColor]}
-        position={[0, y - 0.0005, 0]}
-        rotation={[0, 0, 0]}
-        userData={{ opacity: 0.22 }}
-      />
-      {/* Minor grid (very subtle) */}
-      <gridHelper
-        args={[size, majorDiv * minorPerMajor, minorColor, minorColor]}
         position={[0, y - 0.0006, 0]}
         rotation={[0, 0, 0]}
-        userData={{ opacity: 0.08 }}
+        userData={{ opacity: 0.16 }}
+      />
+      {/* minor grid (barely there) */}
+      <gridHelper
+        args={[size, majorDiv * minorPerMajor, minorColor, minorColor]}
+        position={[0, y - 0.0007, 0]}
+        rotation={[0, 0, 0]}
+        userData={{ opacity: 0.06 }}
       />
 
-      {/* Soft contact to anchor the character without drama */}
       <ContactShadows
         position={[0, 0.002, 0]}
-        opacity={0.25}
+        opacity={0.22}
         scale={Math.max(FLOOR_W, FLOOR_D) + 1.6}
-        blur={2.6}
+        blur={2.4}
         far={10}
         resolution={1024}
         frames={1}
@@ -147,19 +145,18 @@ function Scene({
   onReadyDuration: (dur: number) => void;
   gridDensity: GridDensity;
 }) {
-  const axes = useMemo(() => new THREE.AxesHelper(1.5), []);
   return (
     <>
-      {/* Subtle filmic lighting */}
-      <hemisphereLight intensity={0.7} groundColor="#0d0f13" />
-      <ambientLight intensity={0.25} />
-      <directionalLight position={[6, 10, 6]} intensity={0.95} color="#ffd1a3" />
-      {/* Scene fog for depth separation */}
-      {/* @ts-ignore: drei/three attaches fine */}
-      <fog attach="fog" args={["#0e1114", 9, 24]} />
+      {/* filmic lighting, slightly warmer key */}
+      <hemisphereLight intensity={0.65} groundColor="#0d0f13" />
+      <ambientLight intensity={0.22} />
+      <directionalLight position={[6, 9.5, 6]} intensity={0.9} color="#ffe2c0" />
+
+      {/* gentle atmospheric depth */}
+      {/* @ts-ignore */}
+      <fog attach="fog" args={["#0c1014", 10, 26]} />
 
       <TrainingFloor density={gridDensity} />
-      <primitive object={axes} position={[0, 0.01, 0]} />
 
       {fbxUrl && (
         <FBXModel
@@ -349,7 +346,7 @@ export default function ThreeView() {
       `data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileExcel)}`
     );
 
-    // Update URL (player/session/lock) for shareability
+    // Update URL for shareability
     if (isBrowser) {
       const sp = new URLSearchParams(window.location.search);
       sp.set("mode", isPlayer ? "player" : "admin");
@@ -477,12 +474,6 @@ export default function ThreeView() {
       }
     }
     return null;
-  }
-
-  function prettyLabel(k: string): string {
-    const parts = k.split("/").filter(Boolean);
-    const tail = parts.slice(-2).join(" / ");
-    return (tail || k).replace(/_/g, " ");
   }
 
   function listNumericChannels(data: Array<Record<string, unknown>>): string[] {
@@ -677,7 +668,7 @@ export default function ThreeView() {
   const fmt = (s: number) => `${s.toFixed(2)}s`;
 
   const toolbarVars = (isPlayer
-    ? ({ ["--brand-img" as any]: "48px", ["--brand-text" as any]: "22px" })
+    ? ({ ["--brand-img" as any]: "44px", ["--brand-text" as any]: "22px" })
     : ({ ["--brand-img" as any]: "28px", ["--brand-text" as any]: "18px" })) as React.CSSProperties;
 
   /* UI sizing */
@@ -731,9 +722,9 @@ export default function ThreeView() {
   /* Render */
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden" }}>
-      {/* Top bar — three clusters: brand/session | playback | data picks */}
+      {/* Top bar */}
       <div className={`toolbar ${isPlayer ? "is-player" : "is-admin"}`} style={toolbarVars} role="toolbar" aria-label="Sequence controls">
-        {/* Cluster: brand + session/patient */}
+        {/* left cluster */}
         <div className="cluster left" role="group" aria-labelledby="cluster-brand">
           <div className="brand" id="cluster-brand" aria-label="Sequence">
             <img src={withBase("Logo.png")} alt="Sequence logo" />
@@ -782,7 +773,7 @@ export default function ThreeView() {
           </div>
         </div>
 
-        {/* Cluster: playback (primary) */}
+        {/* middle cluster: playback */}
         <div className="cluster mid" role="group" aria-labelledby="cluster-playback">
           <span className="sr-only" id="cluster-playback">Playback</span>
 
@@ -801,11 +792,8 @@ export default function ThreeView() {
               }}
               onKeyDown={onTimeKey}
               disabled={duration <= 0}
-              style={{ width: isCompact ? 180 : 340 }}
+              style={{ width: isCompact ? 180 : 360 }}
               aria-label="Scrub time"
-              aria-valuemin={0}
-              aria-valuemax={Math.max(0.001, duration || 0.001)}
-              aria-valuenow={Math.min(time, duration || 0)}
             />
             {mode === "admin" && (
               <span className="small">{`${fmt(time)} / ${fmt(duration || 0)} • ${FPS} fps`}</span>
@@ -826,9 +814,6 @@ export default function ThreeView() {
               disabled={duration <= 0}
               style={{ width: isCompact ? 140 : 160 }}
               aria-label="Playback speed"
-              aria-valuemin={0.1}
-              aria-valuemax={2}
-              aria-valuenow={speed}
             />
             <span className="small">{speed.toFixed(1)}x</span>
           </div>
@@ -846,11 +831,10 @@ export default function ThreeView() {
           </button>
         </div>
 
-        {/* Cluster: data picks + visibility */}
+        {/* right cluster: data selections */}
         <div className="cluster right" role="group" aria-labelledby="cluster-data">
           <span className="sr-only" id="cluster-data">Data selection</span>
 
-          {/* Sheet picker (if multiple) */}
           {sheetNames.length > 0 && (
             <div className="ctrl">
               <span className="label">Sheet</span>
@@ -870,7 +854,6 @@ export default function ThreeView() {
             </div>
           )}
 
-          {/* Channels */}
           {channels.length > 0 && (
             <>
               <div className="ctrl">
@@ -909,25 +892,15 @@ export default function ThreeView() {
             </>
           )}
 
-          {/* Visibility toggles */}
           <label className="toggle" aria-label="Show primary graph">
-            <input
-              type="checkbox"
-              checked={showMainGraph}
-              onChange={(e) => setShowMainGraph(e.target.checked)}
-            />
-            <span>Show primary</span>
+            <input type="checkbox" checked={showMainGraph} onChange={(e) => setShowMainGraph(e.target.checked)} />
+            <span>Primary</span>
           </label>
           <label className="toggle" aria-label="Show secondary graph">
-            <input
-              type="checkbox"
-              checked={showSecond}
-              onChange={(e) => setShowSecond(e.target.checked)}
-            />
-            <span>Show secondary</span>
+            <input type="checkbox" checked={showSecond} onChange={(e) => setShowSecond(e.target.checked)} />
+            <span>Secondary</span>
           </label>
 
-          {/* Admin layout & frame snap (kept, but tucked right) */}
           {mode === "admin" && (
             <>
               <div className="ctrl">
@@ -946,10 +919,9 @@ export default function ThreeView() {
               </div>
               <label className="toggle" aria-label="Snap playback to frames">
                 <input type="checkbox" checked={snapFrames} onChange={(e) => setSnapFrames(e.target.checked)} />
-                <span>Snap frames</span>
+                <span>Snap</span>
               </label>
 
-              {/* Admin import/export */}
               <label className="btn ghost filebtn" title="Upload .fbx" aria-label="Upload FBX">
                 Upload .fbx
                 <input type="file" accept=".fbx" onChange={handleFbxFile} />
@@ -981,25 +953,26 @@ export default function ThreeView() {
           bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 ? dockPx : 0,
         }}
         dpr={isCompact ? [1, 1.25] : [1, 2]}
-        camera={{ position: [4.4, 3.1, 6.2], fov: 45 }}
+        camera={{ position: [4.6, 3.0, 6.2], fov: 45 }}
         gl={{ antialias: true, powerPreference: isCompact ? "low-power" : "high-performance" }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.0;
+          gl.toneMappingExposure = 1.03;
           gl.shadowMap.enabled = false;
         }}
       >
-        <PerformanceMonitor
-          onDecline={() => setGridDensity("low")}
-          onIncline={() => setGridDensity("high")}
-        />
+        <PerformanceMonitor onDecline={() => setGridDensity("low")} onIncline={() => setGridDensity("high")} />
         <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} gridDensity={gridDensity} />
         <OrbitControls
           enableDamping
-          dampingFactor={0.12}
+          dampingFactor={0.1}
+          enablePan={false}
+          minDistance={3.5}
+          maxDistance={8.5}
           minPolarAngle={Math.PI * 0.12}
           maxPolarAngle={Math.PI * 0.48}
+          target={[0, 1, 0]}
         />
 
         {/* In-3D graph panels */}
@@ -1152,12 +1125,15 @@ export default function ThreeView() {
         </div>
       )}
 
-      {/* Empty state (quiet) */}
+      {/* empty state */}
       {!rows && (
         <div className="empty">
           <span>No data loaded</span>
         </div>
       )}
+
+      {/* vignette overlay for subtle focus */}
+      <div className="vignette" aria-hidden="true" />
 
       {/* Theme & polish */}
       <style>{`
@@ -1167,32 +1143,29 @@ export default function ThreeView() {
         .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; clip-path:inset(50%); }
 
         :root {
-          --bg-0: #0b0e12;
-          --bg-1: #0f141a;
-          --panel: rgba(14,18,23,0.66);
+          --panel: rgba(14,18,23,0.64);
           --border: rgba(255,255,255,0.08);
           --border-strong: rgba(255,255,255,0.12);
           --text: #e6edf7;
           --muted: #cfd6e2;
           --accent: #e5812b;
           --accent-deep: #cf6a14;
-          --glow: rgba(229,129,43,0.35);
+          --glow: rgba(229,129,43,0.32);
           --shadow: 0 12px 40px rgba(0,0,0,0.45);
           --focus: #6aa7ff66;
         }
 
         .toolbar {
           position: absolute; top: 12px; left: 12px; right: 12px;
-          display: grid;
-          grid-template-columns: 1fr auto 1fr;
+          display: grid; grid-template-columns: 1fr auto 1fr;
           align-items: center;
           gap: 12px; padding: 10px 12px;
-          border-radius: 12px;
-          background: linear-gradient(180deg, rgba(18,22,28,0.82), rgba(12,15,20,0.62));
-          backdrop-filter: saturate(1.15) blur(10px);
+          border-radius: 10px;
+          background: linear-gradient(180deg, rgba(18,22,28,0.84), rgba(12,15,20,0.62));
+          backdrop-filter: blur(10px) saturate(1.1);
           border: 1px solid var(--border);
           box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.06);
-          z-index: 10; pointer-events: auto; min-height: 62px;
+          z-index: 10; pointer-events: auto; min-height: 60px;
         }
 
         .cluster { display:flex; align-items:center; gap: 12px; }
@@ -1211,7 +1184,7 @@ export default function ThreeView() {
           font-size: var(--brand-text); text-shadow: 0 1px 0 rgba(0,0,0,0.35);
         }
 
-        .ctrl { display: flex; align-items: center; gap: 10px; }
+        .ctrl { display: flex; align-items: center; gap: 8px; }
         .ctrl.grow { min-width: 280px; }
         .label { font-size: 11px; color: var(--muted); opacity: 0.9; }
         .small { font-size: 12px; color: var(--muted); opacity: 0.85; }
@@ -1284,6 +1257,12 @@ export default function ThreeView() {
           position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
           padding:10px 14px; border-radius:8px; font-size:12px; color:var(--muted);
           background: rgba(12,16,21,0.55); border:1px solid var(--border);
+        }
+
+        .vignette {
+          position:absolute; inset:0; pointer-events:none;
+          background: radial-gradient(60% 50% at 50% 55%, rgba(0,0,0,0) 0 65%, rgba(0,0,0,0.25) 100%);
+          mix-blend-mode: normal;
         }
 
         @media (max-width: 900px), (max-height: 700px) {
