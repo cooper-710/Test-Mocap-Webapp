@@ -33,7 +33,7 @@ const isBrowser = typeof window !== "undefined";
 /** Suggested players for the dropdown (you can extend via URL ?players=A,B,C) */
 const DEFAULT_PLAYERS = ["Pete Alonso"];
 
-/** Training floor dimensions (meters-ish) */
+/** Training floor dimensions */
 const FLOOR_W = 10;
 const FLOOR_D = 6;
 
@@ -44,13 +44,13 @@ const joinPath = (a: string, b: string) =>
 const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 
 /* ------------------------------------------------------------------ */
-/* Training Floor (clean, neutral grid)                                */
+/* Training Floor (clean, understated grid)                            */
 /* ------------------------------------------------------------------ */
 
 function TrainingFloor() {
-  const size = 80; // wide enough for camera
-  const majorDiv = 16;
-  const minorPerMajor = 4;
+  const size = 80;           // world units (wide enough for camera)
+  const majorDiv = 16;       // number of big squares across
+  const minorPerMajor = 4;   // minor lines per big square
   const y = 0;
 
   const groupRef = React.useRef<THREE.Group>(null);
@@ -82,12 +82,12 @@ function TrainingFloor() {
         position={[0, y - 0.0006, 0]}
         rotation={[0, 0, 0]}
       />
-
+      {/* Tight contact shadows for grounding */}
       <ContactShadows
         position={[0, 0.002, 0]}
-        opacity={0.35}
+        opacity={0.3}
         scale={Math.max(FLOOR_W, FLOOR_D) + 1.6}
-        blur={2.8}
+        blur={2.6}
         far={10}
         resolution={1024}
         frames={1}
@@ -146,7 +146,6 @@ export default function ThreeView() {
 
   // Player locking via URL
   const paramPlayerRaw = params.get("player");
-  // Convert + to space (GitHub Pages links like ?player=Player+Name)
   const decodedParamPlayer =
     paramPlayerRaw ? decodeURIComponent(paramPlayerRaw.replace(/\+/g, " ")) : null;
   const initialPlayer = decodedParamPlayer || DEFAULT_PLAYERS[0];
@@ -177,7 +176,7 @@ export default function ThreeView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlayerLocked, paramPlayerRaw]);
 
-  /* Compact/mobile */
+  /* Compact/mobile flags & dvh fallback */
   const [isCompact, setIsCompact] = useState<boolean>(() =>
     isBrowser ? window.matchMedia("(max-width: 900px), (max-height: 700px)").matches : false
   );
@@ -187,6 +186,19 @@ export default function ThreeView() {
     const onChange = () => setIsCompact(mq.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  // Set a CSS var for dvh (iPad toolbars) and cap DPR a bit for tablets
+  const [dprMax, setDprMax] = useState(1.75);
+  useEffect(() => {
+    if (!isBrowser) return;
+    const setDvh = () => {
+      document.documentElement.style.setProperty("--app-dvh", `${window.innerHeight}px`);
+    };
+    setDvh();
+    window.addEventListener("resize", setDvh);
+    setDprMax(Math.min(1.75, window.devicePixelRatio || 1));
+    return () => window.removeEventListener("resize", setDvh);
   }, []);
 
   /* Playback */
@@ -311,8 +323,7 @@ export default function ThreeView() {
       sp.set("mode", isPlayer ? "player" : "admin");
       sp.set("player", playerName);
       sp.set("session", session);
-      if (isPlayerLocked) sp.set("lock", "1");
-      else sp.delete("lock");
+      if (isPlayerLocked) sp.set("lock", "1"); else sp.delete("lock");
       const newUrl = `${window.location.pathname}?${sp.toString()}`;
       if (newUrl !== window.location.href) window.history.replaceState({}, "", newUrl);
     }
@@ -614,7 +625,7 @@ export default function ThreeView() {
     return cancelLoop;
   }, [startLoop, cancelLoop]);
 
-  /* Seek from graphs (map JSON time → FBX time) */
+  /* Seek from graphs */
   const handleGraphSeek = useCallback(
     (tJson: number) => {
       if (duration > 0 && jsonDuration > 0) {
@@ -655,267 +666,282 @@ export default function ThreeView() {
 
   /* Render */
   return (
-    <div style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden" }}>
-      {/* Top bar */}
-      <div className="toolbar">
-        <div className="toolbarGrid">
-          {/* Left cluster: brand + player/session */}
-          <div className="cluster left">
-            <div className="brand" aria-label="Sequence">
-              <img src={withBase("Logo.png")} alt="Sequence logo" />
-              <span className="name">SEQUENCE</span>
-            </div>
+    <div
+      className="app-root"
+      style={{
+        width: "100vw",
+        height: "var(--app-dvh, 100dvh)",
+        position: "relative",
+        overflow: "hidden",
+        paddingTop: "env(safe-area-inset-top, 0px)",
+      }}
+    >
+      {/* Header: 3 clusters that wrap cleanly (Option A) */}
+      <div className={`toolbar ${isPlayer ? "is-player" : "is-admin"}`}>
+        {/* LEFT cluster: brand + identity */}
+        <div className="cluster left" style={{ gridArea: "left" }}>
+          <div className="brand" aria-label="Sequence">
+            <img src={withBase("Logo.png")} alt="Sequence logo" />
+            <span className="name">SEQUENCE</span>
+          </div>
 
-            <div className="ctrl">
-              <span className="label">Player</span>
-              {isPlayerLocked ? (
-                <span className="pill" title={playerName} aria-label="Player">
-                  {playerName}
-                </span>
-              ) : (
-                <select
-                  className="select"
-                  value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
-                  title={playerName}
-                >
-                  {players.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            <div className="ctrl">
-              <span className="label">Session</span>
-              <select
-                className="select"
-                value={session ?? ""}
-                onChange={(e) => setSession(e.target.value)}
-                title={session ?? undefined}
-                disabled={!sessions.length}
-              >
-                {sessions.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
+          {/* Player (pill when locked; select otherwise) */}
+          <div className="ctrl">
+            <span className="label">Player</span>
+            {isPlayerLocked ? (
+              <span className="pill" title={playerName} aria-label="Player">{playerName}</span>
+            ) : (
+              <select className="select" value={playerName} onChange={(e) => setPlayerName(e.target.value)} title={playerName}>
+                {players.map((n) => (
+                  <option key={n} value={n}>{n}</option>
                 ))}
               </select>
-            </div>
+            )}
           </div>
 
-          {/* Middle cluster: time/speed/playback */}
-          <div className="cluster middle">
-            <div className="ctrl grow">
-              <span className="label">Time</span>
-              <input
-                className="slider"
-                type="range"
-                min={0}
-                max={Math.max(0.001, duration || 0.001)}
-                step={snapFrames ? 1 / FPS : Math.max(0.001, (duration || 1) / 1000)}
-                value={Math.min(time, duration || 0)}
-                onChange={(e) => {
-                  const t = parseFloat(e.target.value);
-                  setTime(snapFrames ? Math.round(t * FPS) / FPS : t);
-                }}
-                disabled={duration <= 0}
-              />
-              {mode === "admin" && (
-                <span className="small">{`${fmt(time)} / ${fmt(duration || 0)} • ${FPS} fps`}</span>
-              )}
-            </div>
+          {/* Session picker */}
+          <div className="ctrl">
+            <span className="label">Session</span>
+            <select
+              className="select"
+              value={session ?? ""}
+              onChange={(e) => setSession(e.target.value)}
+              title={session ?? undefined}
+              disabled={!sessions.length}
+            >
+              {sessions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-            <div className="ctrl grow">
-              <span className="label">Speed</span>
-              <input
-                className="slider"
-                type="range"
-                min={0.1}
-                max={2}
-                step={0.1}
-                value={speed}
-                onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                disabled={duration <= 0}
-              />
-              <span className="small">{speed.toFixed(1)}x</span>
-            </div>
-
-            <div className="ctrl">
-              <button className="btn primary" onClick={() => setPlaying((p) => !p)} disabled={duration <= 0}>
-                {playing ? "Pause" : "Play"}
-              </button>
-              <button className="btn" onClick={() => setTime(0)} disabled={duration <= 0}>
-                Reset
-              </button>
-            </div>
+        {/* MIDDLE cluster: transport + sliders */}
+        <div className="cluster middle" style={{ gridArea: "middle" }}>
+          <div className="ctrl grow">
+            <span className="label">Time</span>
+            <input
+              className="slider"
+              type="range"
+              min={0}
+              max={Math.max(0.001, duration || 0.001)}
+              step={snapFrames ? 1 / FPS : Math.max(0.001, (duration || 1) / 1000)}
+              value={Math.min(time, duration || 0)}
+              onChange={(e) => {
+                const t = parseFloat(e.target.value);
+                setTime(snapFrames ? Math.round(t * FPS) / FPS : t);
+              }}
+              disabled={duration <= 0}
+            />
           </div>
 
-          {/* Right cluster: sheet/metrics/toggles */}
-          <div className="cluster right">
-            {sheetNames.length > 0 && (
-              <div className="ctrl">
-                <span className="label">Sheet</span>
-                <select
-                  className="select"
-                  value={sheet ?? ""}
-                  onChange={(e) => setSheet(e.target.value)}
-                  title={sheet ?? undefined}
-                >
-                  {sheetNames.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+          <div className="ctrl grow">
+            <span className="label">Speed</span>
+            <input
+              className="slider"
+              type="range"
+              min={0.1}
+              max={2}
+              step={0.1}
+              value={speed}
+              onChange={(e) => setSpeed(parseFloat(e.target.value))}
+              disabled={duration <= 0}
+            />
+            <span className="small">{speed.toFixed(1)}x</span>
+          </div>
 
-            {channels.length > 0 && (
-              <>
-                <div className="ctrl">
-                  <span className="label">Metric A</span>
-                  <select
-                    className="select"
-                    value={selectedChannel ?? ""}
-                    onChange={(e) => setSelectedChannel(e.target.value)}
-                    title={selectedChannel ?? undefined}
-                  >
-                    {channels.map((k) => (
-                      <option key={k} value={k}>
-                        {k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="ctrl">
-                  <span className="label">Metric B</span>
-                  <select
-                    className="select"
-                    value={selectedChannelB ?? ""}
-                    onChange={(e) => setSelectedChannelB(e.target.value)}
-                    title={selectedChannelB ?? undefined}
-                  >
-                    {channels.map((k) => (
-                      <option key={k} value={k}>
-                        {k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </>
-            )}
-
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={showMainGraph}
-                onChange={(e) => setShowMainGraph(e.target.checked)}
-              />
-              <span>Primary</span>
-            </label>
-            <label className="toggle">
-              <input type="checkbox" checked={showSecond} onChange={(e) => setShowSecond(e.target.checked)} />
-              <span>Secondary</span>
-            </label>
-
+          <div className="ctrl">
+            <button className="btn primary" onClick={() => setPlaying((p) => !p)} disabled={duration <= 0}>
+              {playing ? "Pause" : "Play"}
+            </button>
+            <button className="btn" onClick={() => setTime(0)} disabled={duration <= 0}>
+              Reset
+            </button>
             {mode === "admin" && (
               <label className="toggle">
-                <input type="checkbox" checked={snapFrames} onChange={(e) => setSnapFrames(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={snapFrames}
+                  onChange={(e) => setSnapFrames(e.target.checked)}
+                />
                 <span>Snap</span>
               </label>
             )}
-
             {mode === "admin" && (
-              <>
-                <button className="btn ghost" onClick={exportCurrentJSON} disabled={!rows || rows.length === 0}>
-                  Export JSON
-                </button>
-                <label className="btn" style={{ cursor: "pointer" }}>
-                  Upload .fbx
-                  <input type="file" accept=".fbx" onChange={handleFbxFile} style={{ display: "none" }} />
-                </label>
-                <label className="btn" style={{ cursor: "pointer" }}>
-                  Upload JSON
-                  <input type="file" accept=".json,application/json" onChange={handleJsonFile} style={{ display: "none" }} />
-                </label>
-                <label className="btn" style={{ cursor: "pointer" }}>
-                  Upload Excel
-                  <input type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelFile} style={{ display: "none" }} />
-                </label>
-              </>
+              <div className="small" style={{ marginLeft: 6 }}>{`${fmt(time)} / ${fmt(duration || 0)} • ${FPS} fps`}</div>
             )}
           </div>
+        </div>
+
+        {/* RIGHT cluster: data + visibility */}
+        <div className="cluster right" style={{ gridArea: "right" }}>
+          {/* Sheet picker (when multiple) */}
+          {sheetNames.length > 0 && (
+            <div className="ctrl">
+              <span className="label">Sheet</span>
+              <select
+                className="select"
+                value={sheet ?? ""}
+                onChange={(e) => setSheet(e.target.value)}
+                title={sheet ?? undefined}
+              >
+                {sheetNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Channels (after Excel is loaded) */}
+          {channels.length > 0 && (
+            <>
+              <div className="ctrl">
+                <span className="label">Metric A</span>
+                <select
+                  className="select"
+                  value={selectedChannel ?? ""}
+                  onChange={(e) => setSelectedChannel(e.target.value)}
+                  title={selectedChannel ?? undefined}
+                >
+                  {channels.map((k) => (
+                    <option key={k} value={k}>{k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="ctrl">
+                <span className="label">Metric B</span>
+                <select
+                  className="select"
+                  value={selectedChannelB ?? ""}
+                  onChange={(e) => setSelectedChannelB(e.target.value)}
+                  title={selectedChannelB ?? undefined}
+                >
+                  {channels.map((k) => (
+                    <option key={k} value={k}>{k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+
+          {/* Visibility toggles */}
+          <label className="toggle">
+            <input type="checkbox" checked={showMainGraph} onChange={(e) => setShowMainGraph(e.target.checked)} />
+            <span>Primary</span>
+          </label>
+          <label className="toggle">
+            <input type="checkbox" checked={showSecond} onChange={(e) => setShowSecond(e.target.checked)} />
+            <span>Secondary</span>
+          </label>
+
+          {/* Admin-only: layout mode (kept, but subtle) */}
+          {mode === "admin" && (
+            <>
+              <div className="ctrl">
+                <span className="label">Panels</span>
+                <select className="select" value={panelMode} onChange={(e) => setPanelMode(e.target.value as PanelMode)}>
+                  <option value="docked">Docked</option>
+                  <option value="in3d">In-3D</option>
+                </select>
+              </div>
+              <div className="ctrl">
+                <span className="label">Dock</span>
+                <select className="select" value={graphDock} onChange={(e) => setGraphDock(e.target.value as Layout)}>
+                  <option value="bottom">Bottom</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
+              <button className="btn ghost" onClick={exportCurrentJSON} disabled={!rows || rows.length === 0}>
+                Export JSON
+              </button>
+              <label className="btn" style={{ cursor: "pointer" }}>
+                Upload .fbx
+                <input type="file" accept=".fbx" onChange={handleFbxFile} style={{ display: "none" }} />
+              </label>
+              <label className="btn" style={{ cursor: "pointer" }}>
+                Upload JSON
+                <input type="file" accept=".json,application/json" onChange={handleJsonFile} style={{ display: "none" }} />
+              </label>
+              <label className="btn" style={{ cursor: "pointer" }}>
+                Upload Excel
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelFile} style={{ display: "none" }} />
+              </label>
+            </>
+          )}
         </div>
       </div>
 
       {/* 3D + (optional) hologram panels */}
-      <Canvas
-        key={`${playerName}:${session ?? "none"}`}
+      <div
+        className="canvas-wrap"
         style={{
           position: "absolute",
           left: 0,
           right: 0,
-          top: 0,
+          top:
+            panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0
+              ? 0
+              : 0,
           bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 ? dockPx : 0,
-        }}
-        dpr={isCompact ? [1, 1.25] : [1, 2]}
-        camera={{ position: [4, 3, 6], fov: 45 }}
-        gl={{ antialias: true, powerPreference: isCompact ? "low-power" : "high-performance" }}
-        onCreated={({ gl }) => {
-          gl.outputColorSpace = THREE.SRGBColorSpace;
-          gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.0;
-          gl.shadowMap.enabled = false;
+          touchAction: "none",
         }}
       >
-        <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} />
-        <OrbitControls enableDamping dampingFactor={0.08} />
-
-        {/* In-3D graph panels */}
-        {panelMode === "in3d" && showMainGraph && series && selectedChannel && (
-          <GraphHoloPanel
-            title={`Signal • ${sheet ? sheet + " • " : ""}${prettyLabel(selectedChannel)}`}
-            position={posMain}
-            setPosition={setPosMain}
-            draggable={mode === "admin"}
-          >
-            <SimpleGraph
-              data={series}
-              time={time}
-              jsonDuration={jsonDuration || 0}
-              fbxDuration={duration || 0}
-              height={200}
-              title=""
-              yLabel="Value"
-              onSeek={handleGraphSeek}
-            />
-          </GraphHoloPanel>
-        )}
-
-        {panelMode === "in3d" && showSecond && seriesB && selectedChannelB && (
-          <GraphHoloPanel
-            title={`Signal • ${sheet ? sheet + " • " : ""}${prettyLabel(selectedChannelB)}`}
-            position={posSecond}
-            setPosition={setPosSecond}
-            draggable={mode === "admin"}
-          >
-            <SimpleGraph
-              data={seriesB}
-              time={time}
-              jsonDuration={jsonDuration || 0}
-              fbxDuration={duration || 0}
-              height={200}
-              title=""
-              yLabel="Value"
-              onSeek={handleGraphSeek}
-            />
-          </GraphHoloPanel>
-        )}
-      </Canvas>
+        <Canvas
+          key={`${playerName}:${session ?? "none"}`}
+          dpr={[1, dprMax]}
+          camera={{ position: [4, 3, 6], fov: 45 }}
+          gl={{ antialias: true, powerPreference: isCompact ? "low-power" : "high-performance" }}
+          onCreated={({ gl }) => {
+            gl.outputColorSpace = THREE.SRGBColorSpace;
+            gl.toneMapping = THREE.ACESFilmicToneMapping;
+            gl.toneMappingExposure = 1.0;
+            gl.shadowMap.enabled = false;
+          }}
+        >
+          <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} />
+          <OrbitControls enableDamping dampingFactor={0.08} />
+          {/* In-3D graph panels */}
+          {panelMode === "in3d" && showMainGraph && series && selectedChannel && (
+            <GraphHoloPanel
+              title={`Signal • ${sheet ? sheet + " • " : ""}${prettyLabel(selectedChannel)}`}
+              position={posMain}
+              setPosition={setPosMain}
+              draggable={mode === "admin"}
+            >
+              <SimpleGraph
+                data={series}
+                time={time}
+                jsonDuration={jsonDuration || 0}
+                fbxDuration={duration || 0}
+                height={200}
+                title=""
+                yLabel="Value"
+                onSeek={handleGraphSeek}
+              />
+            </GraphHoloPanel>
+          )}
+          {panelMode === "in3d" && showSecond && seriesB && selectedChannelB && (
+            <GraphHoloPanel
+              title={`Signal • ${sheet ? sheet + " • " : ""}${prettyLabel(selectedChannelB)}`}
+              position={posSecond}
+              setPosition={setPosSecond}
+              draggable={mode === "admin"}
+            >
+              <SimpleGraph
+                data={seriesB}
+                time={time}
+                jsonDuration={jsonDuration || 0}
+                fbxDuration={duration || 0}
+                height={200}
+                title=""
+                yLabel="Value"
+                onSeek={handleGraphSeek}
+              />
+            </GraphHoloPanel>
+          )}
+        </Canvas>
+      </div>
 
       {/* Docked graphs (bottom) */}
       {panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 && (
@@ -978,7 +1004,7 @@ export default function ThreeView() {
           className="panel-wrap"
           style={{
             position: "absolute",
-            top: isCompact ? 86 : 90,
+            top: 94,
             right: 12,
             bottom: 12,
             width: isCompact
@@ -1033,69 +1059,77 @@ export default function ThreeView() {
         :root {
           --bg-0: #0b0e12;
           --bg-1: #0f141a;
-          --panel: rgba(14,18,23,0.68);
+          --panel: rgba(14,18,23,0.66);
+          --panel-strong: rgba(14,18,23,0.78);
           --border: rgba(255,255,255,0.08);
-          --border-strong: rgba(255,255,255,0.12);
+          --border-strong: rgba(255,255,255,0.14);
           --text: #e6edf7;
           --muted: #cfd6e2;
           --accent: #e5812b;
           --accent-deep: #cf6a14;
           --glow: rgba(229,129,43,0.35);
-          --shadow: 0 10px 30px rgba(0,0,0,0.45);
+          --shadow: 0 12px 40px rgba(0,0,0,0.42);
         }
 
-        /* ---------------- Header container ---------------- */
+        /* Header becomes a real grid (never overflows) */
         .toolbar {
           position: absolute;
-          top: 12px; left: 12px; right: 12px;
+          left: 12px; right: 12px; top: 12px;
+          display: grid;
+          grid-template-areas: "left middle right";
+          grid-template-columns: auto 1fr auto;
+          gap: 10px 14px;
+          align-items: center;
+          padding: 12px 14px;
           border-radius: 14px;
           background:
-            linear-gradient(180deg, rgba(18,22,28,0.82), rgba(12,15,20,0.62));
+            radial-gradient(900px 140px at 10% -60%, rgba(229,129,43,0.08), transparent 65%),
+            linear-gradient(180deg, var(--panel-strong), rgba(10,13,17,0.56));
+          backdrop-filter: saturate(1.1) blur(8px);
           border: 1px solid var(--border);
-          box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.06);
-          backdrop-filter: saturate(1.1) blur(10px);
-          padding: 10px 12px;
-          max-width: calc(100% - 24px);
-          overflow: hidden;    /* <- hard stop for overflow */
-          box-sizing: border-box;
+          box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.05);
           z-index: 10;
+          pointer-events: auto;
+          min-height: 62px;
         }
 
-        /* Grid that auto-fits into columns; wraps without clipping */
-        .toolbarGrid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-          gap: 10px;
-          align-items: center;
-          width: 100%;
+        /* Breakpoint: two-row layout */
+        @media (min-width: 900px) and (max-width: 1399px) {
+          .toolbar {
+            grid-template-areas:
+              "left right"
+              "middle middle";
+            grid-template-columns: 1fr auto;
+          }
         }
 
-        /* Clusters internally flex-wrap their controls */
-        .cluster {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 8px 10px;
-          min-width: 0;   /* allow shrinking inside grid cell */
+        /* Narrowest: stacks cleanly */
+        @media (max-width: 899px) {
+          .toolbar {
+            grid-template-areas:
+              "left"
+              "middle"
+              "right";
+            grid-template-columns: 1fr;
+          }
         }
-        .cluster.left .brand { margin-right: 6px; }
 
-        /* Brand */
-        .brand { display: inline-flex; align-items: center; gap: 10px; }
+        .cluster { display: flex; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+        .cluster.middle { align-items: center; }
+
+        .brand { display: flex; align-items: center; gap: 10px; margin-right: 6px; }
         .brand img {
-          width: 36px; height: 36px; object-fit: contain;
+          width: 42px; height: 42px; object-fit: contain;
           border-radius: 50%;
-          box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 6px 18px rgba(0,0,0,0.35);
+          box-shadow: 0 0 0 1px rgba(255,255,255,0.10), 0 6px 16px rgba(0,0,0,0.35);
         }
         .brand .name {
           font-weight: 800; letter-spacing: 0.06em; color: var(--text);
-          font-size: 18px; text-shadow: 0 1px 0 rgba(0,0,0,0.35);
-          white-space: nowrap;
+          font-size: 20px; text-shadow: 0 1px 0 rgba(0,0,0,0.35);
         }
 
-        /* Controls */
-        .ctrl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-        .ctrl.grow { flex: 1 1 260px; min-width: 220px; }
+        .ctrl { display: flex; align-items: center; gap: 6px; min-width: 0; }
+        .ctrl.grow { flex: 1 1 220px; min-width: 140px; }
 
         .label { font-size: 12px; color: var(--muted); opacity: 0.9; white-space: nowrap; }
         .small { font-size: 12px; color: var(--muted); opacity: 0.85; white-space: nowrap; }
@@ -1109,28 +1143,20 @@ export default function ThreeView() {
           padding: 6px 28px 6px 10px;
           font-size: 12px;
           outline: none;
-          height: 32px;
-          min-width: 160px;
-          max-width: min(260px, 38vw);
+          height: 30px;
           box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
           transition: border-color .18s ease, box-shadow .18s ease, transform .06s ease;
           background-image:
             linear-gradient(180deg, transparent 0 50%, rgba(255,255,255,0.02) 50% 100%),
             radial-gradient(circle at right 12px center, var(--accent) 0 2px, transparent 3px);
           background-repeat: no-repeat;
-        }
-
-        .slider {
-          -webkit-appearance: none; width: min(360px, 42vw); height: 6px; border-radius: 999px;
-          background: linear-gradient(90deg, rgba(229,129,43,0.28), rgba(207,106,20,0.2));
-          box-shadow: inset 0 1px 1px rgba(255,255,255,0.06), 0 0 0 1px var(--border);
-          outline: none;
+          min-width: 140px;
         }
 
         .btn {
           background: linear-gradient(180deg, #1b222c, #141a22);
           color: #d7dde6; border: 1px solid var(--border-strong); border-radius: 11px;
-          height: 32px; padding: 0 12px; font-size: 12px;
+          height: 30px; padding: 0 12px; font-size: 12px;
           display: inline-flex; align-items: center; gap: 6px;
           box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
           white-space: nowrap;
@@ -1138,19 +1164,27 @@ export default function ThreeView() {
         .btn.primary {
           background: linear-gradient(180deg, var(--accent), var(--accent-deep));
           color: #0b0e12; border-color: rgba(255,180,120,0.9);
-          font-weight: 700; box-shadow: 0 6px 18px var(--glow);
+          font-weight: 700; box-shadow: 0 6px 20px var(--glow);
         }
-        .btn.ghost { background: linear-gradient(180deg, #161b23, #11161d); }
+        .btn.ghost { background: linear-gradient(180deg, #131921, #0e141b); }
+
+        .slider {
+          -webkit-appearance: none; width: 100%; height: 6px; border-radius: 999px;
+          background: linear-gradient(90deg, rgba(229,129,43,0.32), rgba(207,106,20,0.18));
+          box-shadow: inset 0 1px 1px rgba(255,255,255,0.06), 0 0 0 1px var(--border);
+          outline: none;
+          flex: 1 1 160px; min-width: 0;
+        }
 
         .toggle { display:flex; align-items:center; gap:6px; color: var(--muted); font-size:12px; white-space: nowrap; }
         .toggle input { accent-color: var(--accent); }
 
         .pill {
           display:inline-flex; align-items:center;
-          height:32px; padding:0 10px; border-radius:10px;
+          height:30px; padding:0 10px; border-radius:10px;
           background: linear-gradient(180deg, #12171e, #0f141a);
           color: var(--text); border:1px solid var(--border-strong);
-          font-size:12px; white-space: nowrap;
+          font-size:12px;
         }
 
         .panel-wrap {
@@ -1160,15 +1194,12 @@ export default function ThreeView() {
           box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.04);
         }
 
-        @media (max-width: 1200px) {
-          .toolbarGrid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-          .ctrl.grow { min-width: 200px; }
-          .slider { width: min(320px, 50vw); }
-        }
         @media (max-width: 900px), (max-height: 700px) {
           .brand .name { display: none; }
-          .slider { width: min(280px, 60vw); }
+          .select { min-width: 120px; }
+          .ctrl.grow { flex-basis: 180px; }
         }
+
         @media (prefers-reduced-motion: reduce) {
           .btn, .select, .slider, .toolbar { transition: none !important; }
         }
