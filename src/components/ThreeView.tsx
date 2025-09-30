@@ -75,13 +75,13 @@ function TrainingFloor() {
       <gridHelper
         args={[size, majorDiv, 0xffffff, 0x9ca3af]}
         position={[0, y - 0.0005, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
+        rotation={[0,0,0]}
       />
       {/* Minor grid (subtle) */}
       <gridHelper
         args={[size, majorDiv * minorPerMajor, 0x6b7280, 0x374151]}
         position={[0, y - 0.0006, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
+        rotation={[0, 0, 0]}
       />
 
       <ContactShadows
