@@ -53,8 +53,8 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
   const minorPerMajor = 4;
 
   // Colors tuned for premium-but-subtle read
-  const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.85); // ~#D9D9D9 linear
-  const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.35 : 0.45);
+  const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.60); // ~#D9D9D9 linear
+  const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.15 : 0.25);
 
   const groupRef = useRef<THREE.Group>(null);
 
@@ -64,7 +64,7 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
       const mat = (o as any).material as THREE.Material | undefined;
       if (mat && "opacity" in mat) {
         (mat as any).transparent = true;
-        (mat as any).opacity = 0.9;
+        (mat as any).opacity = 0.5;
         (mat as any).depthWrite = false;
       }
       o.frustumCulled = false;
