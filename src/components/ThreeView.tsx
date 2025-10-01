@@ -568,7 +568,6 @@ export default function ThreeView() {
     if (!data || data.length === 0 || !channel) return { pts: [], dur: 0 };
 
     const hasT = data.some((d) => typeof (d as any)?.t === "number");
-    the_has_time:
     const hasTime = data.some((d) => typeof (d as any)?.time === "number");
     const tKey: "t" | "time" | null = hasT ? "t" : hasTime ? "time" : null;
 
@@ -1227,9 +1226,7 @@ export default function ThreeView() {
           box-shadow: 0 10px 28px rgba(0,0,0,0.35), inset 0 1px rgba(255,255,255,0.04);
           z-index: 10; pointer-events: auto; min-height: 58px;
         }
-        .toolbar.studio {
-          padding: 8px 10px;
-        }
+        .toolbar.studio { padding: 8px 10px; }
 
         .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; }
         .brand img {
