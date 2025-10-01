@@ -85,7 +85,7 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
 
     // Brighter adaptive exposure (global), distance-comped
     const dist = camera.position.length();
-    const base = 1.12; // was 1.06–1.08
+    const base = 1.12; // brighter baseline
     const expo = THREE.MathUtils.clamp(base + (7 - dist) * 0.06, 1.02, 1.34);
     // @ts-expect-error
     scene.toneMappingExposure = expo;
@@ -100,9 +100,9 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
       {/* Warm spot pool at origin — brighter & wider */}
       <spotLight
         color={"#ffdfbf"}
-        intensity={2.0}              // ↑ from 1.6
+        intensity={2.0}
         position={[0, 6.4, 0]}
-        angle={Math.PI * 0.32}       // slightly wider
+        angle={Math.PI * 0.32}
         penumbra={0.75}
         distance={26}
         castShadow={false}
@@ -136,7 +136,7 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
   const majorDiv = 16;
   const minorPerMajor = 4;
 
-  // Same values as before — do not change grid brightness
+  // Same values as before — grid brightness unchanged
   const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.45);
   const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.10 : 0.16);
 
@@ -656,16 +656,19 @@ export default function ThreeView() {
   const EXTRA_CHROME = 12;
 
   const availableGraphs = (series ? 1 : 0) + (seriesB ? 1 : 0);
-  const requestedGraphCount = (showMainGraph ? 1 : 0) + (showSecond ? 1 : 0);
-  const activeGraphCount = Math.min(requestedGraphCount, availableGraphs);
+  const requestedGraphCount2 = (showMainGraph ? 1 : 0) + (showSecond ? 1 : 0);
+  const activeGraphCount = Math.min(requestedGraphCount2, availableGraphs);
 
-  const shouldShowBottomDock = panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0;
-  const dockPct = requestedGraphCount === 2 ? 0.3 : requestedGraphCount === 1 ? 0.2 : 0;
+  const shouldShowBottomDock =
+    panelMode === "docked" && graphDock === "bottom" && requestedGraphCount2 > 0;
+
   const dockHeightPx = shouldShowBottomDock ? dockPx : 0;
 
   const innerChrome = PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME;
-  const graphRowsForLayout = requestedGraphCount > 1 ? 2 : 1;
-  const computedSlot = Math.floor((dockHeightPx - innerChrome - (graphRowsForLayout > 1 ? ROW_GAP : 0)) / graphRowsForLayout);
+  const graphRowsForLayout = requestedGraphCount2 > 1 ? 2 : 1;
+  const computedSlot = Math.floor(
+    (dockHeightPx - innerChrome - (graphRowsForLayout > 1 ? ROW_GAP : 0)) / graphRowsForLayout
+  );
   const perGraphHeight = Math.max(isCompact ? 100 : 120, computedSlot);
 
   /* Controls + Camera refs for shortcuts */
@@ -856,7 +859,7 @@ export default function ThreeView() {
           position: "absolute",
           left: 0, right: 0, top: 0,
           touchAction: "none",
-          bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 ? dockPx : 0,
+          bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount2 > 0 ? dockPx : 0,
         }}
         dpr={isCompact ? [1, 1.25] : [1, 2]}
         camera={{ position: [4, 3, 6], fov: 45 }}
@@ -877,13 +880,16 @@ export default function ThreeView() {
         }}
       >
         <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} mutedGrid={studio} />
+
+        {/* allow low angles so you can look UP at the figure */}
+        {/* (JSX comments cannot live between attributes; keep them above/below) */}
         <OrbitControls
           ref={controlsRef}
           enableDamping
           dampingFactor={0.06}
           minDistance={2}
           maxDistance={12}
-          minPolarAngle={0.06}                 {/* lets you get low and look UP */}
+          minPolarAngle={0.06}
           maxPolarAngle={Math.PI * 0.92}
           target={[0, 1, 0]}
         />
@@ -913,15 +919,15 @@ export default function ThreeView() {
       </Canvas>
 
       {/* Docked graphs (bottom) */}
-      {panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 && (
+      {panelMode === "docked" && graphDock === "bottom" && requestedGraphCount2 > 0 && (
         <div className="panel-wrap" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: dockPx, padding: "12px 12px calc(14px + env(safe-area-inset-bottom, 0px))", boxSizing: "border-box", overflow: "hidden" }}>
           {activeGraphCount > 0 ? (
             <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", paddingRight: 4 }}>
               {showMainGraph && series && selectedChannel && (
-                <SimpleGraph data={series} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={Math.max(isCompact ? 100 : 120, Math.floor((dockPx - (12 + 34 + 12)) / (requestedGraphCount > 1 ? 2 : 1)))} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`} yLabel="Value" onSeek={handleGraphSeek} />
+                <SimpleGraph data={series} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={Math.max(isCompact ? 100 : 120, Math.floor((dockPx - (12 + 34 + 12)) / (requestedGraphCount2 > 1 ? 2 : 1)))} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`} yLabel="Value" onSeek={handleGraphSeek} />
               )}
               {!studio && showSecond && seriesB && selectedChannelB && (
-                <SimpleGraph data={seriesB} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={Math.max(isCompact ? 100 : 120, Math.floor((dockPx - (12 + 34 + 12)) / (requestedGraphCount > 1 ? 2 : 1)))} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`} yLabel="Value" onSeek={handleGraphSeek} />
+                <SimpleGraph data={seriesB} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={Math.max(isCompact ? 100 : 120, Math.floor((dockPx - (12 + 34 + 12)) / (requestedGraphCount2 > 1 ? 2 : 1)))} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`} yLabel="Value" onSeek={handleGraphSeek} />
               )}
             </div>
           ) : null}
@@ -929,7 +935,7 @@ export default function ThreeView() {
       )}
 
       {/* Right-docked graphs */}
-      {panelMode === "docked" && graphDock === "right" && requestedGraphCount > 0 && (
+      {panelMode === "docked" && graphDock === "right" && requestedGraphCount2 > 0 && (
         <div className="panel-wrap" style={{ position: "absolute", top: isCompact ? 86 : 90, right: 12, bottom: 12, width: isCompact ? Math.min(380, Math.round((isBrowser ? window.innerWidth : 1200) * 0.55)) : 420, overflow: "hidden" }}>
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", gap: 12, overflowY: "auto" }}>
             {showMainGraph && series && selectedChannel && (
