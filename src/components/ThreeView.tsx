@@ -47,7 +47,7 @@ const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 /* Adaptive Lighting Rig                                               */
 /* ------------------------------------------------------------------ */
 
-/** Camera-aware 3-point rig with spotlight + mild exposure auto-comp */
+/** Camera-aware rig: warm key + neutral fill + rim + spotlight, with mild exposure auto-comp */
 function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
   const { camera, scene } = useThree();
   const keyRef = useRef<THREE.DirectionalLight>(null);
@@ -60,23 +60,18 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
   useFrame(() => {
     const aimY = 1.0;
     const subject = new THREE.Vector3(0, aimY, 0);
+    const toCam = camera.position.clone().sub(subject).normalize();
+
     keyTarget.current!.position.set(0, aimY, 0);
     fillTarget.current!.position.set(0, aimY, 0);
     rimTarget.current!.position.set(0, aimY, 0);
 
-    const toCam = camera.position.clone().sub(subject).normalize();
-
-    // Key: from camera side, slightly above
-    const keyPos = toCam.clone().multiplyScalar(6);
-    keyPos.y = 3.0;
+    const keyPos = toCam.clone().multiplyScalar(6); keyPos.y = 3.0;
     keyRef.current!.position.copy(keyPos);
 
-    // Fill: opposite side, cooler, lower
-    const fillPos = toCam.clone().multiplyScalar(-5);
-    fillPos.y = 2.2;
+    const fillPos = toCam.clone().multiplyScalar(-5); fillPos.y = 2.2;
     fillRef.current!.position.copy(fillPos);
 
-    // Rim: 90° perpendicular to camera azimuth
     const rimPos = new THREE.Vector3(-toCam.z, 0, toCam.x).normalize().multiplyScalar(5.2);
     rimPos.y = 3.2;
     rimRef.current!.position.copy(rimPos);
@@ -88,59 +83,42 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
     fillRef.current!.target.updateMatrixWorld();
     rimRef.current!.target.updateMatrixWorld();
 
-    // Mild auto-exposure vs zoom distance
+    // Slightly brighter baseline + distance comp
     const dist = camera.position.length();
-    const expo = THREE.MathUtils.clamp(1.02 + (7 - dist) * 0.045, 0.88, 1.18);
-    // @ts-expect-error – fiber types don't expose this but it exists at runtime
+    const base = 1.08;
+    const expo = THREE.MathUtils.clamp(base + (7 - dist) * 0.05, 0.95, 1.28);
+    // @ts-expect-error
     scene.toneMappingExposure = expo;
   });
 
   return (
     <group>
-      {/* Soft environment */}
-      <hemisphereLight
-        intensity={0.55}
-        color={"#c9d2df"}
-        groundColor={muted ? "#0a0c10" : "#0d0f13"}
-      />
-      <ambientLight intensity={0.18} />
+      {/* Neutral environment (avoid blue cast) */}
+      <hemisphereLight intensity={0.50} color={"#dadde2"} groundColor={muted ? "#0a0c10" : "#0d0f13"} />
+      <ambientLight intensity={0.20} />
 
-      {/* Warm spotlight pool at origin for subject separation */}
+      {/* Brighter, warmer spotlight pool at origin */}
       <spotLight
-        color={"#ffd7b0"}
-        intensity={1.1}
-        position={[0, 6.2, 0]}
-        angle={Math.PI * 0.23}
-        penumbra={0.6}
-        distance={20}
+        color={"#ffdfbf"}
+        intensity={1.6}
+        position={[0, 6.4, 0]}
+        angle={Math.PI * 0.28}
+        penumbra={0.7}
+        distance={24}
         castShadow={false}
       />
 
-      {/* Key / Fill / (stronger) Rim */}
-      <directionalLight
-        ref={keyRef}
-        color={"#ffd1a3"}
-        intensity={1.05}
-        castShadow={false}
-      >
+      {/* Key / Fill / Rim */}
+      <directionalLight ref={keyRef} color={"#ffd3aa"} intensity={1.35} castShadow={false}>
         <object3D ref={keyTarget} />
       </directionalLight>
 
-      <directionalLight
-        ref={fillRef}
-        color={"#b7cdfa"}
-        intensity={0.45}
-        castShadow={false}
-      >
+      {/* Neutral gray fill (no blue) */}
+      <directionalLight ref={fillRef} color={"#e2e5ea"} intensity={0.38} castShadow={false}>
         <object3D ref={fillTarget} />
       </directionalLight>
 
-      <directionalLight
-        ref={rimRef}
-        color={"#8ab6ff"}
-        intensity={0.78}  // stronger rim for pop
-        castShadow={false}
-      >
+      <directionalLight ref={rimRef} color={"#a7c7ff"} intensity={0.90} castShadow={false}>
         <object3D ref={rimTarget} />
       </directionalLight>
     </group>
@@ -590,6 +568,7 @@ export default function ThreeView() {
     if (!data || data.length === 0 || !channel) return { pts: [], dur: 0 };
 
     const hasT = data.some((d) => typeof (d as any)?.t === "number");
+    the_has_time:
     const hasTime = data.some((d) => typeof (d as any)?.time === "number");
     const tKey: "t" | "time" | null = hasT ? "t" : hasTime ? "time" : null;
 
@@ -806,7 +785,6 @@ export default function ThreeView() {
         // Focus camera back to origin
         e.preventDefault();
         controlsRef.current?.target?.set(0, 1, 0);
-        e.preventDefault();
         controlsRef.current?.update?.();
         cameraRef.current?.position.set(4, 3, 6);
       } else if (key === "g") {
@@ -1039,8 +1017,7 @@ export default function ThreeView() {
         onCreated={({ gl, camera, scene }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.0;
-          // premium photometrics
+          gl.toneMappingExposure = 1.06; // brighter baseline
           // @ts-expect-error
           gl.physicallyCorrectLights = true;
           gl.shadowMap.enabled = false;
@@ -1048,9 +1025,8 @@ export default function ThreeView() {
 
           // Gentle atmospheric fade so the grid/horizon recede
           scene.fog = new THREE.FogExp2("#0b0e12", 0.06);
-          // ensure scene exposure starts sane; AdaptiveLightRig will adjust
           // @ts-expect-error
-          scene.toneMappingExposure = 1.0;
+          scene.toneMappingExposure = 1.06;
         }}
       >
         <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} mutedGrid={studio} />
@@ -1216,15 +1192,16 @@ export default function ThreeView() {
         </div>
       )}
 
-      {/* Theme & polish */}
+      {/* Theme & polish (neutral graphite, no blue tint) */}
       <style>{`
         .toolbar, .panel-wrap, .select, .btn {
           font-family: Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
         }
         :root {
+          /* Neutral charcoal palette */
           --bg-0: #0b0e12;
-          --bg-1: #0f141a;
-          --panel: rgba(14,18,23,0.64);
+          --bg-1: #0e1116;               /* neutral (no blue) */
+          --panel: rgba(12,14,18,0.66);  /* neutralized from blue-leaning */
           --border: rgba(255,255,255,0.06);
           --border-strong: rgba(255,255,255,0.12);
           --text: #e6edf7;
@@ -1244,7 +1221,7 @@ export default function ThreeView() {
           border-radius: 14px;
           background:
             radial-gradient(900px 140px at 10% -60%, rgba(229,129,43,0.06), transparent 65%),
-            linear-gradient(180deg, rgba(18,22,28,0.76), rgba(12,15,20,0.58));
+            linear-gradient(180deg, rgba(18,22,28,0.76), rgba(11,14,18,0.60)); /* neutral */
           backdrop-filter: saturate(1.1) blur(10px);
           border: 1px solid var(--border);
           box-shadow: 0 10px 28px rgba(0,0,0,0.35), inset 0 1px rgba(255,255,255,0.04);
@@ -1272,7 +1249,7 @@ export default function ThreeView() {
 
         .select {
           appearance: none;
-          background: linear-gradient(180deg, #12171e, #0f141a);
+          background: linear-gradient(180deg, #121418, #0e1116); /* neutral */
           color: var(--text);
           border: 1px solid var(--border-strong);
           border-radius: 10px;
@@ -1290,7 +1267,7 @@ export default function ThreeView() {
         }
 
         .btn {
-          background: linear-gradient(180deg, #1b222c, #141a22);
+          background: linear-gradient(180deg, #1a1f26, #12161b); /* neutral graphite */
           color: #d7dde6; border: 1px solid var(--border-strong); border-radius: 10px;
           height: 30px; padding: 0 12px; font-size: 12px;
           display: inline-flex; align-items: center; gap: 6px;
@@ -1317,14 +1294,14 @@ export default function ThreeView() {
         .pill {
           display:inline-flex; align-items:center;
           height:30px; padding:0 10px; border-radius:10px;
-          background: linear-gradient(180deg, #12171e, #0f141a);
+          background: linear-gradient(180deg, #121418, #0e1116);
           color: var(--text); border:1px solid var(--border-strong);
           font-size:12px;
         }
 
         .panel-wrap {
           pointer-events: auto; border-radius: 14px;
-          background: linear-gradient(180deg, rgba(14,18,23,0.62), rgba(10,13,17,0.54));
+          background: linear-gradient(180deg, rgba(13,16,20,0.66), rgba(10,13,16,0.56)); /* neutral */
           border: 1px solid var(--border);
           box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.04);
         }
