@@ -1,6 +1,6 @@
 // src/components/ThreeView.tsx
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 import FBXModel from "./FBXModel";
@@ -42,6 +42,99 @@ const BASE_URL: string = import.meta.env.BASE_URL;
 const joinPath = (a: string, b: string) =>
   `${a.replace(/\/+$/, "")}/${b.replace(/^\/+/, "")}`;
 const withBase = (p: string) => joinPath(BASE_URL || "/", p);
+
+/* ------------------------------------------------------------------ */
+/* Adaptive Lighting Rig                                               */
+/* ------------------------------------------------------------------ */
+
+/** Camera-aware 3-point rig with mild exposure auto-comp */
+function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
+  const { camera, scene } = useThree();
+  const keyRef = useRef<THREE.DirectionalLight>(null);
+  const fillRef = useRef<THREE.DirectionalLight>(null);
+  const rimRef = useRef<THREE.DirectionalLight>(null);
+  const keyTarget = useRef<THREE.Object3D>(null);
+  const fillTarget = useRef<THREE.Object3D>(null);
+  const rimTarget = useRef<THREE.Object3D>(null);
+
+  useFrame(() => {
+    const aimY = 1.0;
+    const subject = new THREE.Vector3(0, aimY, 0);
+    keyTarget.current!.position.set(0, aimY, 0);
+    fillTarget.current!.position.set(0, aimY, 0);
+    rimTarget.current!.position.set(0, aimY, 0);
+
+    const toCam = camera.position.clone().sub(subject).normalize();
+
+    // Key: from camera side, slightly above
+    const keyPos = toCam.clone().multiplyScalar(6);
+    keyPos.y = 3.0;
+    keyRef.current!.position.copy(keyPos);
+
+    // Fill: opposite side, cooler, lower
+    const fillPos = toCam.clone().multiplyScalar(-5);
+    fillPos.y = 2.2;
+    fillRef.current!.position.copy(fillPos);
+
+    // Rim: 90° perpendicular to camera azimuth
+    const rimPos = new THREE.Vector3(-toCam.z, 0, toCam.x).normalize().multiplyScalar(5.2);
+    rimPos.y = 3.2;
+    rimRef.current!.position.copy(rimPos);
+
+    keyRef.current!.target = keyTarget.current!;
+    fillRef.current!.target = fillTarget.current!;
+    rimRef.current!.target = rimTarget.current!;
+    keyRef.current!.target.updateMatrixWorld();
+    fillRef.current!.target.updateMatrixWorld();
+    rimRef.current!.target.updateMatrixWorld();
+
+    // Mild auto-exposure vs zoom distance
+    const dist = camera.position.length();
+    const expo = THREE.MathUtils.clamp(1.02 + (7 - dist) * 0.045, 0.88, 1.18);
+    // @ts-expect-error - fiber types don't expose scene.toneMappingExposure
+    scene.toneMappingExposure = expo;
+  });
+
+  return (
+    <group>
+      {/* Soft environment */}
+      <hemisphereLight
+        intensity={0.55}
+        color={"#c9d2df"}
+        groundColor={muted ? "#0a0c10" : "#0d0f13"}
+      />
+      <ambientLight intensity={0.18} />
+
+      {/* Key / Fill / Rim */}
+      <directionalLight
+        ref={keyRef}
+        color={"#ffd1a3"}
+        intensity={1.05}
+        castShadow={false}
+      >
+        <object3D ref={keyTarget} />
+      </directionalLight>
+
+      <directionalLight
+        ref={fillRef}
+        color={"#b7cdfa"}
+        intensity={0.45}
+        castShadow={false}
+      >
+        <object3D ref={fillTarget} />
+      </directionalLight>
+
+      <directionalLight
+        ref={rimRef}
+        color={"#8ab6ff"}
+        intensity={0.62}
+        castShadow={false}
+      >
+        <object3D ref={rimTarget} />
+      </directionalLight>
+    </group>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Training Floor                                                      */
@@ -118,10 +211,8 @@ function Scene({
   const axes = useMemo(() => new THREE.AxesHelper(1.5), []);
   return (
     <>
-      {/* Lighting: soft key + gentle ambients (Apple/Tesla tone) */}
-      <hemisphereLight intensity={0.6} groundColor="#0d0f13" />
-      <ambientLight intensity={0.22} />
-      <directionalLight position={[5, 8, 4]} intensity={0.95} color="#ffd1a3" />
+      {/* Adaptive camera-aware lighting */}
+      <AdaptiveLightRig muted={mutedGrid} />
 
       <TrainingFloor muted={mutedGrid} />
 
@@ -933,12 +1024,18 @@ export default function ThreeView() {
         dpr={isCompact ? [1, 1.25] : [1, 2]}
         camera={{ position: [4, 3, 6], fov: 45 }}
         gl={{ antialias: true, powerPreference: isCompact ? "low-power" : "high-performance" }}
-        onCreated={({ gl, camera }) => {
+        onCreated={({ gl, camera, scene }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.0;
+          // premium photometrics
+          // @ts-expect-error - property exists at runtime
+          gl.physicallyCorrectLights = true;
           gl.shadowMap.enabled = false;
           cameraRef.current = camera as THREE.PerspectiveCamera;
+          // ensure scene exposure starts sane
+          // @ts-expect-error - fiber types don't expose scene.toneMappingExposure
+          scene.toneMappingExposure = 1.0;
         }}
       >
         <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} mutedGrid={studio} />
