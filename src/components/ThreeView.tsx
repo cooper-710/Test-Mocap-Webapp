@@ -47,7 +47,7 @@ const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 /* Adaptive Lighting Rig                                               */
 /* ------------------------------------------------------------------ */
 
-/** Camera-aware rig: warm key + neutral fill + rim + spotlight, with mild exposure auto-comp */
+/** Camera-aware lights: brighter subject, neutral UI */
 function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
   const { camera, scene } = useThree();
   const keyRef = useRef<THREE.DirectionalLight>(null);
@@ -83,42 +83,44 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
     fillRef.current!.target.updateMatrixWorld();
     rimRef.current!.target.updateMatrixWorld();
 
-    // Slightly brighter baseline + distance comp
+    // Brighter adaptive exposure (global), distance-comped
     const dist = camera.position.length();
-    const base = 1.08;
-    const expo = THREE.MathUtils.clamp(base + (7 - dist) * 0.05, 0.95, 1.28);
+    const base = 1.12; // was 1.06–1.08
+    const expo = THREE.MathUtils.clamp(base + (7 - dist) * 0.06, 1.02, 1.34);
     // @ts-expect-error
     scene.toneMappingExposure = expo;
   });
 
   return (
     <group>
-      {/* Neutral environment (avoid blue cast) */}
+      {/* Neutral environment (no blue cast) */}
       <hemisphereLight intensity={0.50} color={"#dadde2"} groundColor={muted ? "#0a0c10" : "#0d0f13"} />
       <ambientLight intensity={0.20} />
 
-      {/* Brighter, warmer spotlight pool at origin */}
+      {/* Warm spot pool at origin — brighter & wider */}
       <spotLight
         color={"#ffdfbf"}
-        intensity={1.6}
+        intensity={2.0}              // ↑ from 1.6
         position={[0, 6.4, 0]}
-        angle={Math.PI * 0.28}
-        penumbra={0.7}
-        distance={24}
+        angle={Math.PI * 0.32}       // slightly wider
+        penumbra={0.75}
+        distance={26}
         castShadow={false}
       />
 
+      {/* Subtle warm “lantern” fill near torso for mid-tone lift */}
+      <pointLight color={"#ffe9cf"} intensity={0.6} distance={3.8} position={[0, 1.2, 0]} />
+
       {/* Key / Fill / Rim */}
-      <directionalLight ref={keyRef} color={"#ffd3aa"} intensity={1.35} castShadow={false}>
+      <directionalLight ref={keyRef} color={"#ffd8b8"} intensity={1.5} castShadow={false}>
         <object3D ref={keyTarget} />
       </directionalLight>
 
-      {/* Neutral gray fill (no blue) */}
-      <directionalLight ref={fillRef} color={"#e2e5ea"} intensity={0.38} castShadow={false}>
+      <directionalLight ref={fillRef} color={"#e6e9ee"} intensity={0.42} castShadow={false}>
         <object3D ref={fillTarget} />
       </directionalLight>
 
-      <directionalLight ref={rimRef} color={"#a7c7ff"} intensity={0.90} castShadow={false}>
+      <directionalLight ref={rimRef} color={"#a7c7ff"} intensity={0.95} castShadow={false}>
         <object3D ref={rimTarget} />
       </directionalLight>
     </group>
@@ -126,15 +128,15 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Training Floor                                                      */
+/* Training Floor (UNCHANGED grid)                                     */
 /* ------------------------------------------------------------------ */
 
 function TrainingFloor({ muted = false }: { muted?: boolean }) {
-  const size = 80; // wide enough for typical cameras
+  const size = 80;
   const majorDiv = 16;
   const minorPerMajor = 4;
 
-  // Quieter grid so the subject doesn't blend in
+  // Same values as before — do not change grid brightness
   const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.45);
   const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.10 : 0.16);
 
@@ -155,29 +157,9 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
 
   return (
     <group ref={groupRef} name="FloorGrid">
-      {/* Major grid (brighter) */}
-      <gridHelper
-        args={[size, majorDiv, majorColor, majorColor]}
-        position={[0, -0.00055, 0]}
-        rotation={[0, 0, 0]}
-      />
-      {/* Minor grid (subtle) */}
-      <gridHelper
-        args={[size, majorDiv * minorPerMajor, minorColor, minorColor]}
-        position={[0, -0.0006, 0]}
-        rotation={[0, 0, 0]}
-      />
-
-      {/* Tight contact shadow for grounding */}
-      <ContactShadows
-        position={[0, 0.002, 0]}
-        opacity={0.28}
-        scale={Math.max(FLOOR_W, FLOOR_D) + 1.6}
-        blur={2.4}
-        far={10}
-        resolution={1024}
-        frames={1}
-      />
+      <gridHelper args={[size, majorDiv, majorColor, majorColor]} position={[0, -0.00055, 0]} rotation={[0, 0, 0]} />
+      <gridHelper args={[size, majorDiv * minorPerMajor, minorColor, minorColor]} position={[0, -0.0006, 0]} rotation={[0, 0, 0]} />
+      <ContactShadows position={[0, 0.002, 0]} opacity={0.28} scale={Math.max(FLOOR_W, FLOOR_D) + 1.6} blur={2.4} far={10} resolution={1024} frames={1} />
     </group>
   );
 }
@@ -200,14 +182,9 @@ function Scene({
   const axes = useMemo(() => new THREE.AxesHelper(1.5), []);
   return (
     <>
-      {/* Adaptive camera-aware lighting */}
       <AdaptiveLightRig muted={mutedGrid} />
-
       <TrainingFloor muted={mutedGrid} />
-
-      {/* Keep origin helper very subtle */}
       <primitive object={axes} position={[0, 0.01, 0]} />
-
       {fbxUrl && (
         <FBXModel
           url={fbxUrl}
@@ -235,9 +212,7 @@ export default function ThreeView() {
 
   // Player locking via URL
   const paramPlayerRaw = params.get("player");
-  // IMPORTANT: convert + to space (GitHub Pages links like ?player=Player+Name)
-  const decodedParamPlayer =
-    paramPlayerRaw ? decodeURIComponent(paramPlayerRaw.replace(/\+/g, " ")) : null;
+  const decodedParamPlayer = paramPlayerRaw ? decodeURIComponent(paramPlayerRaw.replace(/\+/g, " ")) : null;
   const initialPlayer = decodedParamPlayer || DEFAULT_PLAYERS[0];
   const isPlayerLocked = params.get("lock") === "1" || (initialMode === "player" && !!paramPlayerRaw);
 
@@ -258,7 +233,6 @@ export default function ThreeView() {
   const [session, setSession] = useState<string | null>(urlSession);
   const [players, setPlayers] = useState<string[]>(initialPlayers);
 
-  // keep playerName in sync with URL when locked
   useEffect(() => {
     if (!isPlayerLocked || !paramPlayerRaw) return;
     const decoded = decodeURIComponent(paramPlayerRaw.replace(/\+/g, " "));
@@ -317,14 +291,8 @@ export default function ThreeView() {
   const [showMainGraph, setShowMainGraph] = useState<boolean>(storedShowMain ? storedShowMain === "1" : true);
   const [showSecond, setShowSecond] = useState<boolean>(storedShowSecond ? storedShowSecond === "1" : true);
 
-  // Studio hides secondary automatically (does not overwrite preference)
-  useEffect(() => {
-    if (studio) setShowSecond(false);
-  }, [studio]);
-
-  useEffect(() => {
-    if (isBrowser) localStorage.setItem("seq_showMainGraph", showMainGraph ? "1" : "0");
-  }, [showMainGraph]);
+  useEffect(() => { if (studio) setShowSecond(false); }, [studio]);
+  useEffect(() => { if (isBrowser) localStorage.setItem("seq_showMainGraph", showMainGraph ? "1" : "0"); }, [showMainGraph]);
   useEffect(() => {
     if (!isBrowser) return;
     localStorage.setItem("seq_showSecondGraph", showSecond ? "1" : "0");
@@ -356,7 +324,6 @@ export default function ThreeView() {
 
   useEffect(() => {
     let cancelled = false;
-
     async function loadManifest(p: string) {
       try {
         const url = withBase(`data/${encodeURIComponent(p)}/index.json?ts=${Date.now()}`);
@@ -380,11 +347,8 @@ export default function ThreeView() {
         setSession(null);
       }
     }
-
     loadManifest(playerName);
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerName, isPlayerLocked]);
 
@@ -395,14 +359,10 @@ export default function ThreeView() {
     const fileFBX = manifest.files?.[session]?.fbx ?? manifest.fbx ?? "EXPORT.fbx";
     const fileExcel = manifest.files?.[session]?.excel ?? manifest.excel ?? "Kinematic_Data (1).xlsx";
 
-    const fbxPath = withBase(
-      `data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileFBX)}`
-    );
-    const excelPath = withBase(
-      `data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileExcel)}`
-    );
+    const fbxPath = withBase(`data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileFBX)}`);
+    const excelPath = withBase(`data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileExcel)}`);
 
-    // Update URL (player/session/lock) for shareability
+    // Update URL for shareability
     if (isBrowser) {
       const sp = new URLSearchParams(window.location.search);
       sp.set("mode", isPlayer ? "player" : "admin");
@@ -447,11 +407,7 @@ export default function ThreeView() {
   }, [manifest, session, playerName, isPlayer, isPlayerLocked]);
 
   /* Clean blob URLs */
-  useEffect(() => {
-    return () => {
-      if (fbxUrl?.startsWith("blob:")) URL.revokeObjectURL(fbxUrl);
-    };
-  }, [fbxUrl]);
+  useEffect(() => () => { if (fbxUrl?.startsWith("blob:")) URL.revokeObjectURL(fbxUrl); }, [fbxUrl]);
 
   /* Admin uploads */
   function handleFbxFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -463,7 +419,6 @@ export default function ThreeView() {
     setPlaying(true);
     setTime(0);
   }
-
   async function handleJsonFile(e: React.ChangeEvent<HTMLInputElement>) {
     if (mode !== "admin") return;
     const file = e.target.files?.[0];
@@ -482,7 +437,6 @@ export default function ThreeView() {
       alert(`Couldn't read that JSON.\n\n${err?.message ?? err}`);
     }
   }
-
   async function handleExcelFile(e: React.ChangeEvent<HTMLInputElement>) {
     if (mode !== "admin") return;
     const file = e.target.files?.[0];
@@ -491,12 +445,10 @@ export default function ThreeView() {
       const sets = await parseExcelToDataSets(file, FPS);
       const names = Object.keys(sets);
       if (!names.length) throw new Error("No usable sheets found.");
-
       const preferred =
         names.find((n) => /joint.*position/i.test(n)) ??
         names.find((n) => /baseball.*data/i.test(n)) ??
         names[0];
-
       setRowsBySheet(sets);
       setSheetNames(names);
       setSheet(preferred);
@@ -508,7 +460,6 @@ export default function ThreeView() {
       alert(`Couldn't read that Excel file.\n\n${err?.message ?? err}`);
     }
   }
-
   function exportCurrentJSON() {
     if (!rows || rows.length === 0) return;
     const blob = new Blob([JSON.stringify(rows)], { type: "application/json" });
@@ -531,13 +482,11 @@ export default function ThreeView() {
     }
     return null;
   }
-
   function prettyLabel(k: string): string {
     const parts = k.split("/").filter(Boolean);
     const tail = parts.slice(-2).join(" / ");
     return (tail || k).replace(/_/g, " ");
   }
-
   function listNumericChannels(data: Array<Record<string, unknown>>): string[] {
     const set = new Set<string>();
     for (const d of data) {
@@ -550,7 +499,6 @@ export default function ThreeView() {
     }
     return Array.from(set).sort();
   }
-
   function pickPreferredChannel(list: string[]): string | null {
     return (
       list.find((k) => /Wrist.*Velocity/i.test(k)) ??
@@ -560,25 +508,18 @@ export default function ThreeView() {
       null
     );
   }
-
-  function buildSeries(
-    data: Array<Record<string, unknown>>,
-    channel: string | null
-  ): { pts: SeriesPoint[]; dur: number } {
+  function buildSeries(data: Array<Record<string, unknown>>, channel: string | null): { pts: SeriesPoint[]; dur: number } {
     if (!data || data.length === 0 || !channel) return { pts: [], dur: 0 };
-
     const hasT = data.some((d) => typeof (d as any)?.t === "number");
     const hasTime = data.some((d) => typeof (d as any)?.time === "number");
     const tKey: "t" | "time" | null = hasT ? "t" : hasTime ? "time" : null;
 
     const n = data.length;
     const pts: SeriesPoint[] = [];
-
     for (let i = 0; i < n; i++) {
       const row = data[i] as any;
       const rawV = row?.[channel];
       if (typeof rawV !== "number" || !Number.isFinite(rawV)) continue;
-
       let t: number;
       if (tKey) {
         const tv = Number(row[tKey]);
@@ -589,22 +530,15 @@ export default function ThreeView() {
       }
       pts.push({ t, value: rawV });
     }
-
     if (pts.length === 0) return { pts: [], dur: 0 };
-
     const t0 = pts[0].t ?? 0;
     const t1 = pts[pts.length - 1].t ?? 0;
     const dur = Math.max(0, t1 - t0);
-
-    const normalized: SeriesPoint[] = pts.map((p) => ({
-      t: (p.t ?? 0) - t0,
-      value: p.value,
-    }));
-
+    const normalized: SeriesPoint[] = pts.map((p) => ({ t: (p.t ?? 0) - t0, value: p.value }));
     return { pts: normalized, dur };
   }
 
-  /* Recompute sheet/channels/series when data changes */
+  /* Recompute when data changes */
   useEffect(() => {
     if (!rowsBySheet || !sheet) return;
     const newRows = rowsBySheet[sheet];
@@ -623,21 +557,14 @@ export default function ThreeView() {
   }, [rowsBySheet, sheet]);
 
   useEffect(() => {
-    if (!rows || !selectedChannel) {
-      setSeries(null);
-      setJsonDuration(0);
-      return;
-    }
+    if (!rows || !selectedChannel) { setSeries(null); setJsonDuration(0); return; }
     const { pts, dur } = buildSeries(rows, selectedChannel);
     setSeries(pts);
     setJsonDuration(dur);
   }, [rows, selectedChannel]);
 
   useEffect(() => {
-    if (!rows || !selectedChannelB) {
-      setSeriesB(null);
-      return;
-    }
+    if (!rows || !selectedChannelB) { setSeriesB(null); return; }
     const { pts } = buildSeries(rows, selectedChannelB);
     setSeriesB(pts);
   }, [rows, selectedChannelB]);
@@ -648,7 +575,7 @@ export default function ThreeView() {
     setTime((t) => (dur > 0 ? (t % dur + dur) % dur : 0));
   }, []);
 
-  /* Playback loop (smooth with snap-to-frames accumulator) */
+  /* Playback loop */
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
   const subFrameAccRef = useRef<number>(0);
@@ -659,13 +586,10 @@ export default function ThreeView() {
     lastTsRef.current = null;
   }, []);
 
-  useEffect(() => {
-    subFrameAccRef.current = 0;
-  }, [speed, snapFrames, playing, duration]);
+  useEffect(() => { subFrameAccRef.current = 0; }, [speed, snapFrames, playing, duration]);
 
   const startLoop = useCallback(() => {
     cancelLoop();
-
     const loop = (ts: number) => {
       if (lastTsRef.current == null) lastTsRef.current = ts;
       const dtRaw = (ts - lastTsRef.current) / 1000;
@@ -674,7 +598,6 @@ export default function ThreeView() {
 
       setTime((prev) => {
         if (!playing || duration <= 0) return prev;
-
         let s = Math.min(2, Math.max(0.1, speed));
         const delta = dt * s;
 
@@ -701,16 +624,12 @@ export default function ThreeView() {
 
       rafRef.current = requestAnimationFrame(loop);
     };
-
     rafRef.current = requestAnimationFrame(loop);
   }, [cancelLoop, playing, duration, speed, snapFrames]);
 
-  useEffect(() => {
-    startLoop();
-    return cancelLoop;
-  }, [startLoop, cancelLoop]);
+  useEffect(() => { startLoop(); return cancelLoop; }, [startLoop, cancelLoop]);
 
-  /* Seek from graphs (map JSON time → FBX time) */
+  /* Seek from graphs */
   const handleGraphSeek = useCallback(
     (tJson: number) => {
       if (duration > 0 && jsonDuration > 0) {
@@ -726,8 +645,6 @@ export default function ThreeView() {
     [duration, jsonDuration, snapFrames]
   );
 
-  const fmt = (s: number) => `${s.toFixed(2)}s`;
-
   const toolbarVars = (isPlayer
     ? ({ ["--brand-img" as any]: "56px", ["--brand-text" as any]: "24px" })
     : ({ ["--brand-img" as any]: "28px", ["--brand-text" as any]: "18px" })) as React.CSSProperties;
@@ -739,59 +656,37 @@ export default function ThreeView() {
   const EXTRA_CHROME = 12;
 
   const availableGraphs = (series ? 1 : 0) + (seriesB ? 1 : 0);
+  const requestedGraphCount = (showMainGraph ? 1 : 0) + (showSecond ? 1 : 0);
   const activeGraphCount = Math.min(requestedGraphCount, availableGraphs);
 
-  const shouldShowBottomDock =
-    panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0;
-
+  const shouldShowBottomDock = panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0;
+  const dockPct = requestedGraphCount === 2 ? 0.3 : requestedGraphCount === 1 ? 0.2 : 0;
   const dockHeightPx = shouldShowBottomDock ? dockPx : 0;
 
   const innerChrome = PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME;
   const graphRowsForLayout = requestedGraphCount > 1 ? 2 : 1;
-  const computedSlot = Math.floor(
-    (dockHeightPx - innerChrome - (graphRowsForLayout > 1 ? ROW_GAP : 0)) / graphRowsForLayout
-  );
+  const computedSlot = Math.floor((dockHeightPx - innerChrome - (graphRowsForLayout > 1 ? ROW_GAP : 0)) / graphRowsForLayout);
   const perGraphHeight = Math.max(isCompact ? 100 : 120, computedSlot);
 
   /* Controls + Camera refs for shortcuts */
   const controlsRef = useRef<any>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
-  /* Keyboard shortcuts (space, arrows, up/down, F, G) */
+  /* Keyboard shortcuts */
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)) return;
-
       const key = e.key.toLowerCase();
       const step = 1 / FPS;
 
-      if (key === " ") {
-        e.preventDefault();
-        setPlaying((p) => !p);
-      } else if (key === "arrowright") {
-        e.preventDefault();
-        if (duration > 0) setTime((t) => Math.min(duration, snapFrames ? Math.round((t + step) * FPS) / FPS : t + step));
-      } else if (key === "arrowleft") {
-        e.preventDefault();
-        if (duration > 0) setTime((t) => Math.max(0, snapFrames ? Math.round((t - step) * FPS) / FPS : t - step));
-      } else if (key === "arrowup") {
-        e.preventDefault();
-        setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s + 0.1) * 10) / 10)));
-      } else if (key === "arrowdown") {
-        e.preventDefault();
-        setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s - 0.1) * 10) / 10)));
-      } else if (key === "f") {
-        // Focus camera back to origin
-        e.preventDefault();
-        controlsRef.current?.target?.set(0, 1, 0);
-        controlsRef.current?.update?.();
-        cameraRef.current?.position.set(4, 3, 6);
-      } else if (key === "g") {
-        e.preventDefault();
-        setShowSecond((v) => !v);
-      }
+      if (key === " ") { e.preventDefault(); setPlaying((p) => !p); }
+      else if (key === "arrowright") { e.preventDefault(); if (duration > 0) setTime((t) => Math.min(duration, snapFrames ? Math.round((t + step) * FPS) / FPS : t + step)); }
+      else if (key === "arrowleft") { e.preventDefault(); if (duration > 0) setTime((t) => Math.max(0, snapFrames ? Math.round((t - step) * FPS) / FPS : t - step)); }
+      else if (key === "arrowup") { e.preventDefault(); setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s + 0.1) * 10) / 10))); }
+      else if (key === "arrowdown") { e.preventDefault(); setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s - 0.1) * 10) / 10))); }
+      else if (key === "f") { e.preventDefault(); controlsRef.current?.target?.set(0, 1, 0); controlsRef.current?.update?.(); cameraRef.current?.position.set(4, 3, 6); }
+      else if (key === "g") { e.preventDefault(); setShowSecond((v) => !v); }
     };
-
     window.addEventListener("keydown", onKeyDown, { passive: false });
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [duration, snapFrames]);
@@ -806,39 +701,23 @@ export default function ThreeView() {
           <span className="name">SEQUENCE</span>
         </div>
 
-        {/* Player (pill when locked; select otherwise) */}
+        {/* Player */}
         <div className="ctrl">
           <span className="label">Player</span>
           {isPlayerLocked ? (
-            <span className="pill" title={playerName} aria-label="Player">
-              {playerName}
-            </span>
+            <span className="pill" title={playerName} aria-label="Player">{playerName}</span>
           ) : (
             <select className="select" value={playerName} onChange={(e) => setPlayerName(e.target.value)} title={playerName}>
-              {players.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
+              {players.map((n) => (<option key={n} value={n}>{n}</option>))}
             </select>
           )}
         </div>
 
-        {/* Session picker */}
+        {/* Session */}
         <div className="ctrl">
           <span className="label">Session</span>
-          <select
-            className="select"
-            value={session ?? ""}
-            onChange={(e) => setSession(e.target.value)}
-            title={session ?? undefined}
-            disabled={!sessions.length}
-          >
-            {sessions.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
+          <select className="select" value={session ?? ""} onChange={(e) => setSession(e.target.value)} title={session ?? undefined} disabled={!sessions.length}>
+            {sessions.map((s) => (<option key={s} value={s}>{s}</option>))}
           </select>
         </div>
 
@@ -880,24 +759,13 @@ export default function ThreeView() {
         <button className="btn primary" onClick={() => setPlaying((p) => !p)} disabled={duration <= 0}>
           {playing ? "Pause" : "Play"}
         </button>
-        <button className="btn" onClick={() => setTime(0)} disabled={duration <= 0}>
-          Reset
-        </button>
+        <button className="btn" onClick={() => setTime(0)} disabled={duration <= 0}>Reset</button>
 
         {/* Sheet + Metrics */}
         <div className="ctrl">
           <span className="label">Sheet</span>
-          <select
-            className="select"
-            value={sheet ?? ""}
-            onChange={(e) => setSheet(e.target.value)}
-            title={sheet ?? undefined}
-          >
-            {sheetNames.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
+          <select className="select" value={sheet ?? ""} onChange={(e) => setSheet(e.target.value)} title={sheet ?? undefined}>
+            {sheetNames.map((n) => (<option key={n} value={n}>{n}</option>))}
           </select>
         </div>
 
@@ -905,34 +773,16 @@ export default function ThreeView() {
           <>
             <div className="ctrl">
               <span className="label">Metric A</span>
-              <select
-                className="select"
-                value={selectedChannel ?? ""}
-                onChange={(e) => setSelectedChannel(e.target.value)}
-                title={selectedChannel ?? undefined}
-              >
-                {channels.map((k) => (
-                  <option key={k} value={k}>
-                    {k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}
-                  </option>
-                ))}
+              <select className="select" value={selectedChannel ?? ""} onChange={(e) => setSelectedChannel(e.target.value)} title={selectedChannel ?? undefined}>
+                {channels.map((k) => (<option key={k} value={k}>{k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}</option>))}
               </select>
             </div>
 
             {!studio && (
               <div className="ctrl">
                 <span className="label">Metric B</span>
-                <select
-                  className="select"
-                  value={selectedChannelB ?? ""}
-                  onChange={(e) => setSelectedChannelB(e.target.value)}
-                  title={selectedChannelB ?? undefined}
-                >
-                  {channels.map((k) => (
-                    <option key={k} value={k}>
-                      {k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}
-                    </option>
-                  ))}
+                <select className="select" value={selectedChannelB ?? ""} onChange={(e) => setSelectedChannelB(e.target.value)} title={selectedChannelB ?? undefined}>
+                  {channels.map((k) => (<option key={k} value={k}>{k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}</option>))}
                 </select>
               </div>
             )}
@@ -951,7 +801,7 @@ export default function ThreeView() {
           </label>
         )}
 
-        {/* Admin-only layout & snap */}
+        {/* Admin-only */}
         {mode === "admin" && (
           <>
             <div className="ctrl">
@@ -1004,9 +854,7 @@ export default function ThreeView() {
         key={`${playerName}:${session ?? "none"}`}
         style={{
           position: "absolute",
-          left: 0,
-          right: 0,
-          top: 0,
+          left: 0, right: 0, top: 0,
           touchAction: "none",
           bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 ? dockPx : 0,
         }}
@@ -1016,16 +864,16 @@ export default function ThreeView() {
         onCreated={({ gl, camera, scene }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.06; // brighter baseline
+          gl.toneMappingExposure = 1.12; // brighter baseline
           // @ts-expect-error
           gl.physicallyCorrectLights = true;
           gl.shadowMap.enabled = false;
           cameraRef.current = camera as THREE.PerspectiveCamera;
 
-          // Gentle atmospheric fade so the grid/horizon recede
-          scene.fog = new THREE.FogExp2("#0b0e12", 0.06);
+          // Slightly lighter fog; keeps horizon back without dimming subject
+          scene.fog = new THREE.FogExp2("#0b0e12", 0.055);
           // @ts-expect-error
-          scene.toneMappingExposure = 1.06;
+          scene.toneMappingExposure = 1.12;
         }}
       >
         <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} mutedGrid={studio} />
@@ -1035,8 +883,7 @@ export default function ThreeView() {
           dampingFactor={0.06}
           minDistance={2}
           maxDistance={12}
-          // allow getting low and looking UP at the figure
-          minPolarAngle={0.06}
+          minPolarAngle={0.06}                 {/* lets you get low and look UP */}
           maxPolarAngle={Math.PI * 0.92}
           target={[0, 1, 0]}
         />
@@ -1049,16 +896,7 @@ export default function ThreeView() {
             setPosition={setPosMain}
             draggable={mode === "admin"}
           >
-            <SimpleGraph
-              data={series}
-              time={time}
-              jsonDuration={jsonDuration || 0}
-              fbxDuration={duration || 0}
-              height={200}
-              title=""
-              yLabel="Value"
-              onSeek={handleGraphSeek}
-            />
+            <SimpleGraph data={series} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={200} title="" yLabel="Value" onSeek={handleGraphSeek} />
           </GraphHoloPanel>
         )}
 
@@ -1069,69 +907,21 @@ export default function ThreeView() {
             setPosition={setPosSecond}
             draggable={mode === "admin"}
           >
-            <SimpleGraph
-              data={seriesB}
-              time={time}
-              jsonDuration={jsonDuration || 0}
-              fbxDuration={duration || 0}
-              height={200}
-              title=""
-              yLabel="Value"
-              onSeek={handleGraphSeek}
-            />
+            <SimpleGraph data={seriesB} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={200} title="" yLabel="Value" onSeek={handleGraphSeek} />
           </GraphHoloPanel>
         )}
       </Canvas>
 
       {/* Docked graphs (bottom) */}
       {panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 && (
-        <div
-          className="panel-wrap"
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: dockPx,
-            padding: "12px 12px calc(14px + env(safe-area-inset-bottom, 0px))",
-            boxSizing: "border-box",
-            overflow: "hidden",
-          }}
-        >
+        <div className="panel-wrap" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: dockPx, padding: "12px 12px calc(14px + env(safe-area-inset-bottom, 0px))", boxSizing: "border-box", overflow: "hidden" }}>
           {activeGraphCount > 0 ? (
-            <div
-              style={{
-                height: "100%",
-                display: "flex",
-                flexDirection: "column",
-                gap: 14,
-                overflowY: "auto",
-                paddingRight: 4,
-              }}
-            >
+            <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", paddingRight: 4 }}>
               {showMainGraph && series && selectedChannel && (
-                <SimpleGraph
-                  data={series}
-                  time={time}
-                  jsonDuration={jsonDuration || 0}
-                  fbxDuration={duration || 0}
-                  height={perGraphHeight}
-                  title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`}
-                  yLabel="Value"
-                  onSeek={handleGraphSeek}
-                />
+                <SimpleGraph data={series} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={Math.max(isCompact ? 100 : 120, Math.floor((dockPx - (12 + 34 + 12)) / (requestedGraphCount > 1 ? 2 : 1)))} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`} yLabel="Value" onSeek={handleGraphSeek} />
               )}
               {!studio && showSecond && seriesB && selectedChannelB && (
-                <SimpleGraph
-                  data={seriesB}
-                  time={time}
-                  jsonDuration={jsonDuration || 0}
-                  fbxDuration={duration || 0}
-                  height={perGraphHeight}
-                  title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`}
-                  yLabel="Value"
-                  onSeek={handleGraphSeek}
-                />
+                <SimpleGraph data={seriesB} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={Math.max(isCompact ? 100 : 120, Math.floor((dockPx - (12 + 34 + 12)) / (requestedGraphCount > 1 ? 2 : 1)))} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`} yLabel="Value" onSeek={handleGraphSeek} />
               )}
             </div>
           ) : null}
@@ -1140,67 +930,27 @@ export default function ThreeView() {
 
       {/* Right-docked graphs */}
       {panelMode === "docked" && graphDock === "right" && requestedGraphCount > 0 && (
-        <div
-          className="panel-wrap"
-          style={{
-            position: "absolute",
-            top: isCompact ? 86 : 90,
-            right: 12,
-            bottom: 12,
-            width: isCompact
-              ? Math.min(380, Math.round((isBrowser ? window.innerWidth : 1200) * 0.55))
-              : 420,
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: 12,
-              overflowY: "auto",
-            }}
-          >
+        <div className="panel-wrap" style={{ position: "absolute", top: isCompact ? 86 : 90, right: 12, bottom: 12, width: isCompact ? Math.min(380, Math.round((isBrowser ? window.innerWidth : 1200) * 0.55)) : 420, overflow: "hidden" }}>
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", gap: 12, overflowY: "auto" }}>
             {showMainGraph && series && selectedChannel && (
-              <SimpleGraph
-                data={series}
-                time={time}
-                jsonDuration={jsonDuration || 0}
-                fbxDuration={duration || 0}
-                height={isCompact ? 160 : 180}
-                title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`}
-                yLabel="Value"
-                onSeek={handleGraphSeek}
-              />
+              <SimpleGraph data={series} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={isCompact ? 160 : 180} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`} yLabel="Value" onSeek={handleGraphSeek} />
             )}
             {!studio && showSecond && seriesB && selectedChannelB && (
-              <SimpleGraph
-                data={seriesB}
-                time={time}
-                jsonDuration={jsonDuration || 0}
-                fbxDuration={duration || 0}
-                height={isCompact ? 160 : 180}
-                title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`}
-                yLabel="Value"
-                onSeek={handleGraphSeek}
-              />
+              <SimpleGraph data={seriesB} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={isCompact ? 160 : 180} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`} yLabel="Value" onSeek={handleGraphSeek} />
             )}
           </div>
         </div>
       )}
 
-      {/* Theme & polish (neutral graphite, no blue tint) */}
+      {/* Theme (neutral graphite — no blue tint) */}
       <style>{`
         .toolbar, .panel-wrap, .select, .btn {
           font-family: Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
         }
         :root {
-          /* Neutral charcoal palette */
           --bg-0: #0b0e12;
-          --bg-1: #0e1116;               /* neutral (no blue) */
-          --panel: rgba(12,14,18,0.66);  /* neutralized from blue-leaning */
+          --bg-1: #0e1116;
+          --panel: rgba(12,14,18,0.66);
           --border: rgba(255,255,255,0.06);
           --border-strong: rgba(255,255,255,0.12);
           --text: #e6edf7;
@@ -1220,7 +970,7 @@ export default function ThreeView() {
           border-radius: 14px;
           background:
             radial-gradient(900px 140px at 10% -60%, rgba(229,129,43,0.06), transparent 65%),
-            linear-gradient(180deg, rgba(18,22,28,0.76), rgba(11,14,18,0.60)); /* neutral */
+            linear-gradient(180deg, rgba(18,22,28,0.76), rgba(11,14,18,0.60));
           backdrop-filter: saturate(1.1) blur(10px);
           border: 1px solid var(--border);
           box-shadow: 0 10px 28px rgba(0,0,0,0.35), inset 0 1px rgba(255,255,255,0.04);
@@ -1246,7 +996,7 @@ export default function ThreeView() {
 
         .select {
           appearance: none;
-          background: linear-gradient(180deg, #121418, #0e1116); /* neutral */
+          background: linear-gradient(180deg, #121418, #0e1116);
           color: var(--text);
           border: 1px solid var(--border-strong);
           border-radius: 10px;
@@ -1264,7 +1014,7 @@ export default function ThreeView() {
         }
 
         .btn {
-          background: linear-gradient(180deg, #1a1f26, #12161b); /* neutral graphite */
+          background: linear-gradient(180deg, #1a1f26, #12161b);
           color: #d7dde6; border: 1px solid var(--border-strong); border-radius: 10px;
           height: 30px; padding: 0 12px; font-size: 12px;
           display: inline-flex; align-items: center; gap: 6px;
@@ -1298,7 +1048,7 @@ export default function ThreeView() {
 
         .panel-wrap {
           pointer-events: auto; border-radius: 14px;
-          background: linear-gradient(180deg, rgba(13,16,20,0.66), rgba(10,13,16,0.56)); /* neutral */
+          background: linear-gradient(180deg, rgba(13,16,20,0.66), rgba(10,13,16,0.56));
           border: 1px solid var(--border);
           box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,0.04);
         }
