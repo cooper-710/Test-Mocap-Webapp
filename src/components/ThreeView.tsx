@@ -47,7 +47,7 @@ const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 /* Adaptive Lighting Rig                                               */
 /* ------------------------------------------------------------------ */
 
-/** Camera-aware 3-point rig with mild exposure auto-comp */
+/** Camera-aware 3-point rig with spotlight + mild exposure auto-comp */
 function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
   const { camera, scene } = useThree();
   const keyRef = useRef<THREE.DirectionalLight>(null);
@@ -91,7 +91,7 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
     // Mild auto-exposure vs zoom distance
     const dist = camera.position.length();
     const expo = THREE.MathUtils.clamp(1.02 + (7 - dist) * 0.045, 0.88, 1.18);
-    // @ts-expect-error - fiber types don't expose scene.toneMappingExposure
+    // @ts-expect-error – fiber types don't expose this but it exists at runtime
     scene.toneMappingExposure = expo;
   });
 
@@ -105,7 +105,18 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
       />
       <ambientLight intensity={0.18} />
 
-      {/* Key / Fill / Rim */}
+      {/* Warm spotlight pool at origin for subject separation */}
+      <spotLight
+        color={"#ffd7b0"}
+        intensity={1.1}
+        position={[0, 6.2, 0]}
+        angle={Math.PI * 0.23}
+        penumbra={0.6}
+        distance={20}
+        castShadow={false}
+      />
+
+      {/* Key / Fill / (stronger) Rim */}
       <directionalLight
         ref={keyRef}
         color={"#ffd1a3"}
@@ -127,7 +138,7 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
       <directionalLight
         ref={rimRef}
         color={"#8ab6ff"}
-        intensity={0.62}
+        intensity={0.78}  // stronger rim for pop
         castShadow={false}
       >
         <object3D ref={rimTarget} />
@@ -145,9 +156,9 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
   const majorDiv = 16;
   const minorPerMajor = 4;
 
-  // Colors tuned for premium-but-subtle read
-  const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.60); // ~#D9D9D9 linear
-  const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.15 : 0.25);
+  // Quieter grid so the subject doesn't blend in
+  const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.45);
+  const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.10 : 0.16);
 
   const groupRef = useRef<THREE.Group>(null);
 
@@ -795,6 +806,7 @@ export default function ThreeView() {
         // Focus camera back to origin
         e.preventDefault();
         controlsRef.current?.target?.set(0, 1, 0);
+        e.preventDefault();
         controlsRef.current?.update?.();
         cameraRef.current?.position.set(4, 3, 6);
       } else if (key === "g") {
@@ -1029,12 +1041,15 @@ export default function ThreeView() {
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.0;
           // premium photometrics
-          // @ts-expect-error - property exists at runtime
+          // @ts-expect-error
           gl.physicallyCorrectLights = true;
           gl.shadowMap.enabled = false;
           cameraRef.current = camera as THREE.PerspectiveCamera;
-          // ensure scene exposure starts sane
-          // @ts-expect-error - fiber types don't expose scene.toneMappingExposure
+
+          // Gentle atmospheric fade so the grid/horizon recede
+          scene.fog = new THREE.FogExp2("#0b0e12", 0.06);
+          // ensure scene exposure starts sane; AdaptiveLightRig will adjust
+          // @ts-expect-error
           scene.toneMappingExposure = 1.0;
         }}
       >
@@ -1045,7 +1060,9 @@ export default function ThreeView() {
           dampingFactor={0.06}
           minDistance={2}
           maxDistance={12}
-          maxPolarAngle={Math.PI * 0.49}
+          // allow getting low and looking UP at the figure
+          minPolarAngle={0.06}
+          maxPolarAngle={Math.PI * 0.92}
           target={[0, 1, 0]}
         />
 
