@@ -288,7 +288,6 @@ export default function ThreeView() {
   const [showMainGraph, setShowMainGraph] = useState<boolean>(storedShowMain ? storedShowMain === "1" : true);
   const [showSecond, setShowSecond] = useState<boolean>(storedShowSecond ? storedShowSecond === "1" : true);
 
-  // Studio hides secondary automatically
   useEffect(() => { if (studio) setShowSecond(false); }, [studio]);
 
   useEffect(() => { if (isBrowser) localStorage.setItem("seq_showMainGraph", showMainGraph ? "1" : "0"); }, [showMainGraph]);
@@ -306,16 +305,36 @@ export default function ThreeView() {
   const requestedGraphCount = (showMainGraph ? 1 : 0) + (showSecond ? 1 : 0);
   const dockPct = requestedGraphCount === 2 ? 0.3 : requestedGraphCount === 1 ? 0.2 : 0;
 
-  const [dockPx, setDockPx] = useState(() =>
-    Math.round((isBrowser ? window.innerHeight : 900) * dockPct)
-  );
+  // constants used to compute available room and split heights
+  const PANEL_PAD_TOP = 12;
+  const PANEL_PAD_BOTTOM = 34; // includes visual bottom padding in the dock
+  const ROW_GAP = 14;
+  const EXTRA_CHROME = 12;
+
+  // NEW: ensure graphs never get too short -> we auto-grow dockPx if needed
+  const MIN_GRAPH_PX = isCompact ? 120 : 140;
+
+  const [dockPx, setDockPx] = useState(() => {
+    const base = Math.round((isBrowser ? window.innerHeight : 900) * dockPct);
+    const rows = requestedGraphCount > 1 ? 2 : 1;
+    const innerChrome = PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME + (rows > 1 ? ROW_GAP : 0);
+    const needed = rows * MIN_GRAPH_PX + innerChrome;
+    return Math.max(base, needed);
+  });
+
   useEffect(() => {
     if (!isBrowser) return;
-    setDockPx(Math.round(window.innerHeight * dockPct));
-    const onResize = () => setDockPx(Math.round(window.innerHeight * dockPct));
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [dockPct]);
+    const compute = () => {
+      const base = Math.round(window.innerHeight * dockPct);
+      const rows = requestedGraphCount > 1 ? 2 : 1;
+      const innerChrome = PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME + (rows > 1 ? ROW_GAP : 0);
+      const needed = rows * MIN_GRAPH_PX + innerChrome;
+      setDockPx(Math.max(base, needed));
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [dockPct, requestedGraphCount, MIN_GRAPH_PX]);
 
   /* Player manifest loader */
   const [manifest, setManifest] = useState<PlayerManifest | null>(null);
@@ -648,12 +667,6 @@ export default function ThreeView() {
     ? ({ ["--brand-img" as any]: "56px", ["--brand-text" as any]: "24px" })
     : ({ ["--brand-img" as any]: "28px", ["--brand-text" as any]: "18px" })) as React.CSSProperties;
 
-  /* UI sizing */
-  const PANEL_PAD_TOP = 12;
-  const PANEL_PAD_BOTTOM = 34;
-  const ROW_GAP = 14;
-  const EXTRA_CHROME = 12;
-
   const availableGraphs = (series ? 1 : 0) + (seriesB ? 1 : 0);
   const activeGraphCount = Math.min(requestedGraphCount, availableGraphs);
 
@@ -692,7 +705,7 @@ export default function ThreeView() {
       <div className={`toolbar ${isPlayer ? "is-player" : "is-admin"} ${studio ? "studio" : ""}`} style={toolbarVars}>
         <div className="brand" aria-label="Sequence">
           <img src={withBase("Logo.png")} alt="Sequence logo" />
-        <span className="name">SEQUENCE</span>
+          <span className="name">SEQUENCE</span>
         </div>
 
         {/* Player */}
@@ -925,7 +938,7 @@ export default function ThreeView() {
         )}
       </Canvas>
 
-      {/* Docked graphs (bottom) – zero-scroll, exact split */}
+      {/* Docked graphs (bottom) – zero-scroll, exact split, min-height protected */}
       {panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 && (
         <div
           className="panel-wrap"
@@ -938,6 +951,7 @@ export default function ThreeView() {
             padding: "12px 12px calc(14px + env(safe-area-inset-bottom, 0px))",
             boxSizing: "border-box",
             overflow: "hidden",          // lock both axes
+            minWidth: 0,                 // avoid horizontal overflow in flex children
           }}
         >
           {activeGraphCount > 0 ? (
@@ -947,8 +961,9 @@ export default function ThreeView() {
                 width: "100%",
                 display: "flex",
                 flexDirection: "column",
-                gap: ROW_GAP,            // use the constant consistently
-                overflow: "hidden",      // no vertical or horizontal scroll
+                gap: ROW_GAP,
+                overflow: "hidden",
+                minWidth: 0, // ensure children can shrink without causing scroll
               }}
             >
               {showMainGraph && series && selectedChannel && (
@@ -990,7 +1005,7 @@ export default function ThreeView() {
         </div>
       )}
 
-      {/* Right-docked graphs (unchanged, scroll allowed) */}
+      {/* Right-docked graphs (unchanged; may scroll internally) */}
       {panelMode === "docked" && graphDock === "right" && requestedGraphCount > 0 && (
         <div
           className="panel-wrap"
@@ -1002,7 +1017,8 @@ export default function ThreeView() {
             width: isCompact
               ? Math.min(380, Math.round((isBrowser ? window.innerWidth : 1200) * 0.55))
               : 420,
-            overflow: "hidden", // container; list inside may scroll
+            overflow: "hidden",
+            minWidth: 0,
           }}
         >
           <div
