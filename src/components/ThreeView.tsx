@@ -47,7 +47,6 @@ const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 /* Adaptive Lighting Rig                                               */
 /* ------------------------------------------------------------------ */
 
-/** Camera-aware lights: brighter subject, neutral UI */
 function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
   const { camera, scene } = useThree();
   const keyRef = useRef<THREE.DirectionalLight>(null);
@@ -83,9 +82,9 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
     fillRef.current!.target.updateMatrixWorld();
     rimRef.current!.target.updateMatrixWorld();
 
-    // Brighter adaptive exposure (global), distance-comped
+    // Brighter adaptive exposure with distance comp
     const dist = camera.position.length();
-    const base = 1.12; // brighter baseline
+    const base = 1.12;
     const expo = THREE.MathUtils.clamp(base + (7 - dist) * 0.06, 1.02, 1.34);
     // @ts-expect-error
     scene.toneMappingExposure = expo;
@@ -93,7 +92,6 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
 
   return (
     <group>
-      {/* Neutral environment (no blue cast) */}
       <hemisphereLight intensity={0.50} color={"#dadde2"} groundColor={muted ? "#0a0c10" : "#0d0f13"} />
       <ambientLight intensity={0.20} />
 
@@ -108,7 +106,7 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
         castShadow={false}
       />
 
-      {/* Subtle warm “lantern” fill near torso for mid-tone lift */}
+      {/* Subtle warm fill near torso for mid-tones */}
       <pointLight color={"#ffe9cf"} intensity={0.6} distance={3.8} position={[0, 1.2, 0]} />
 
       {/* Key / Fill / Rim */}
@@ -128,7 +126,7 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Training Floor (UNCHANGED grid)                                     */
+/* Training Floor (grid unchanged)                                     */
 /* ------------------------------------------------------------------ */
 
 function TrainingFloor({ muted = false }: { muted?: boolean }) {
@@ -136,7 +134,6 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
   const majorDiv = 16;
   const minorPerMajor = 4;
 
-  // Same values as before — grid brightness unchanged
   const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.45);
   const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.10 : 0.16);
 
@@ -291,7 +288,9 @@ export default function ThreeView() {
   const [showMainGraph, setShowMainGraph] = useState<boolean>(storedShowMain ? storedShowMain === "1" : true);
   const [showSecond, setShowSecond] = useState<boolean>(storedShowSecond ? storedShowSecond === "1" : true);
 
+  // Studio hides secondary automatically
   useEffect(() => { if (studio) setShowSecond(false); }, [studio]);
+
   useEffect(() => { if (isBrowser) localStorage.setItem("seq_showMainGraph", showMainGraph ? "1" : "0"); }, [showMainGraph]);
   useEffect(() => {
     if (!isBrowser) return;
@@ -656,20 +655,12 @@ export default function ThreeView() {
   const EXTRA_CHROME = 12;
 
   const availableGraphs = (series ? 1 : 0) + (seriesB ? 1 : 0);
-  const requestedGraphCount2 = (showMainGraph ? 1 : 0) + (showSecond ? 1 : 0);
-  const activeGraphCount = Math.min(requestedGraphCount2, availableGraphs);
+  const activeGraphCount = Math.min(requestedGraphCount, availableGraphs);
 
   const shouldShowBottomDock =
-    panelMode === "docked" && graphDock === "bottom" && requestedGraphCount2 > 0;
+    panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0;
 
   const dockHeightPx = shouldShowBottomDock ? dockPx : 0;
-
-  const innerChrome = PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME;
-  const graphRowsForLayout = requestedGraphCount2 > 1 ? 2 : 1;
-  const computedSlot = Math.floor(
-    (dockHeightPx - innerChrome - (graphRowsForLayout > 1 ? ROW_GAP : 0)) / graphRowsForLayout
-  );
-  const perGraphHeight = Math.max(isCompact ? 100 : 120, computedSlot);
 
   /* Controls + Camera refs for shortcuts */
   const controlsRef = useRef<any>(null);
@@ -701,7 +692,7 @@ export default function ThreeView() {
       <div className={`toolbar ${isPlayer ? "is-player" : "is-admin"} ${studio ? "studio" : ""}`} style={toolbarVars}>
         <div className="brand" aria-label="Sequence">
           <img src={withBase("Logo.png")} alt="Sequence logo" />
-          <span className="name">SEQUENCE</span>
+        <span className="name">SEQUENCE</span>
         </div>
 
         {/* Player */}
@@ -859,7 +850,7 @@ export default function ThreeView() {
           position: "absolute",
           left: 0, right: 0, top: 0,
           touchAction: "none",
-          bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount2 > 0 ? dockPx : 0,
+          bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 ? dockPx : 0,
         }}
         dpr={isCompact ? [1, 1.25] : [1, 2]}
         camera={{ position: [4, 3, 6], fov: 45 }}
@@ -867,13 +858,12 @@ export default function ThreeView() {
         onCreated={({ gl, camera, scene }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.12; // brighter baseline
+          gl.toneMappingExposure = 1.12;
           // @ts-expect-error
           gl.physicallyCorrectLights = true;
           gl.shadowMap.enabled = false;
           cameraRef.current = camera as THREE.PerspectiveCamera;
 
-          // Slightly lighter fog; keeps horizon back without dimming subject
           scene.fog = new THREE.FogExp2("#0b0e12", 0.055);
           // @ts-expect-error
           scene.toneMappingExposure = 1.12;
@@ -882,7 +872,6 @@ export default function ThreeView() {
         <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} mutedGrid={studio} />
 
         {/* allow low angles so you can look UP at the figure */}
-        {/* (JSX comments cannot live between attributes; keep them above/below) */}
         <OrbitControls
           ref={controlsRef}
           enableDamping
@@ -898,51 +887,157 @@ export default function ThreeView() {
         {panelMode === "in3d" && showMainGraph && series && selectedChannel && (
           <GraphHoloPanel
             title={`Signal • ${sheet ? sheet + " • " : ""}${prettyLabel(selectedChannel)}`}
-            position={posMain}
+            position={[...posMain]}
             setPosition={setPosMain}
             draggable={mode === "admin"}
           >
-            <SimpleGraph data={series} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={200} title="" yLabel="Value" onSeek={handleGraphSeek} />
+            <SimpleGraph
+              data={series}
+              time={time}
+              jsonDuration={jsonDuration || 0}
+              fbxDuration={duration || 0}
+              height={200}
+              title=""
+              yLabel="Value"
+              onSeek={handleGraphSeek}
+            />
           </GraphHoloPanel>
         )}
 
         {panelMode === "in3d" && !studio && showSecond && seriesB && selectedChannelB && (
           <GraphHoloPanel
             title={`Signal • ${sheet ? sheet + " • " : ""}${prettyLabel(selectedChannelB)}`}
-            position={posSecond}
+            position={[...posSecond]}
             setPosition={setPosSecond}
             draggable={mode === "admin"}
           >
-            <SimpleGraph data={seriesB} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={200} title="" yLabel="Value" onSeek={handleGraphSeek} />
+            <SimpleGraph
+              data={seriesB}
+              time={time}
+              jsonDuration={jsonDuration || 0}
+              fbxDuration={duration || 0}
+              height={200}
+              title=""
+              yLabel="Value"
+              onSeek={handleGraphSeek}
+            />
           </GraphHoloPanel>
         )}
       </Canvas>
 
-      {/* Docked graphs (bottom) */}
-      {panelMode === "docked" && graphDock === "bottom" && requestedGraphCount2 > 0 && (
-        <div className="panel-wrap" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: dockPx, padding: "12px 12px calc(14px + env(safe-area-inset-bottom, 0px))", boxSizing: "border-box", overflow: "hidden" }}>
+      {/* Docked graphs (bottom) – zero-scroll, exact split */}
+      {panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 && (
+        <div
+          className="panel-wrap"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: dockPx,
+            padding: "12px 12px calc(14px + env(safe-area-inset-bottom, 0px))",
+            boxSizing: "border-box",
+            overflow: "hidden",          // lock both axes
+          }}
+        >
           {activeGraphCount > 0 ? (
-            <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", paddingRight: 4 }}>
+            <div
+              style={{
+                height: "100%",
+                width: "100%",
+                display: "flex",
+                flexDirection: "column",
+                gap: ROW_GAP,            // use the constant consistently
+                overflow: "hidden",      // no vertical or horizontal scroll
+              }}
+            >
               {showMainGraph && series && selectedChannel && (
-                <SimpleGraph data={series} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={Math.max(isCompact ? 100 : 120, Math.floor((dockPx - (12 + 34 + 12)) / (requestedGraphCount2 > 1 ? 2 : 1)))} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`} yLabel="Value" onSeek={handleGraphSeek} />
+                <SimpleGraph
+                  data={series}
+                  time={time}
+                  jsonDuration={jsonDuration || 0}
+                  fbxDuration={duration || 0}
+                  height={
+                    Math.floor(
+                      (dockPx - (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) - ((requestedGraphCount - 1) * ROW_GAP)) /
+                      (requestedGraphCount > 1 ? 2 : 1)
+                    ) - 1
+                  }
+                  title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`}
+                  yLabel="Value"
+                  onSeek={handleGraphSeek}
+                />
               )}
               {!studio && showSecond && seriesB && selectedChannelB && (
-                <SimpleGraph data={seriesB} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={Math.max(isCompact ? 100 : 120, Math.floor((dockPx - (12 + 34 + 12)) / (requestedGraphCount2 > 1 ? 2 : 1)))} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`} yLabel="Value" onSeek={handleGraphSeek} />
+                <SimpleGraph
+                  data={seriesB}
+                  time={time}
+                  jsonDuration={jsonDuration || 0}
+                  fbxDuration={duration || 0}
+                  height={
+                    Math.floor(
+                      (dockPx - (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) - ((requestedGraphCount - 1) * ROW_GAP)) /
+                      (requestedGraphCount > 1 ? 2 : 1)
+                    ) - 1
+                  }
+                  title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`}
+                  yLabel="Value"
+                  onSeek={handleGraphSeek}
+                />
               )}
             </div>
           ) : null}
         </div>
       )}
 
-      {/* Right-docked graphs */}
-      {panelMode === "docked" && graphDock === "right" && requestedGraphCount2 > 0 && (
-        <div className="panel-wrap" style={{ position: "absolute", top: isCompact ? 86 : 90, right: 12, bottom: 12, width: isCompact ? Math.min(380, Math.round((isBrowser ? window.innerWidth : 1200) * 0.55)) : 420, overflow: "hidden" }}>
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", gap: 12, overflowY: "auto" }}>
+      {/* Right-docked graphs (unchanged, scroll allowed) */}
+      {panelMode === "docked" && graphDock === "right" && requestedGraphCount > 0 && (
+        <div
+          className="panel-wrap"
+          style={{
+            position: "absolute",
+            top: isCompact ? 86 : 90,
+            right: 12,
+            bottom: 12,
+            width: isCompact
+              ? Math.min(380, Math.round((isBrowser ? window.innerWidth : 1200) * 0.55))
+              : 420,
+            overflow: "hidden", // container; list inside may scroll
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+              overflowY: "auto",
+            }}
+          >
             {showMainGraph && series && selectedChannel && (
-              <SimpleGraph data={series} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={isCompact ? 160 : 180} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`} yLabel="Value" onSeek={handleGraphSeek} />
+              <SimpleGraph
+                data={series}
+                time={time}
+                jsonDuration={jsonDuration || 0}
+                fbxDuration={duration || 0}
+                height={isCompact ? 160 : 180}
+                title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`}
+                yLabel="Value"
+                onSeek={handleGraphSeek}
+              />
             )}
             {!studio && showSecond && seriesB && selectedChannelB && (
-              <SimpleGraph data={seriesB} time={time} jsonDuration={jsonDuration || 0} fbxDuration={duration || 0} height={isCompact ? 160 : 180} title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`} yLabel="Value" onSeek={handleGraphSeek} />
+              <SimpleGraph
+                data={seriesB}
+                time={time}
+                jsonDuration={jsonDuration || 0}
+                fbxDuration={duration || 0}
+                height={isCompact ? 160 : 180}
+                title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`}
+                yLabel="Value"
+                onSeek={handleGraphSeek}
+              />
             )}
           </div>
         </div>
