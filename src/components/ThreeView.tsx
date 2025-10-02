@@ -132,10 +132,10 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
 function TrainingFloor({ muted = false }: { muted?: boolean }) {
   const size = 80;
   const majorDiv = 16;
-  const minorPerMajor = 4;
+  const orPerMajor = 4;
 
   const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.45);
-  const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.10 : 0.16);
+  const orColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.10 : 0.16);
 
   const groupRef = useRef<THREE.Group>(null);
 
@@ -155,7 +155,7 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
   return (
     <group ref={groupRef} name="FloorGrid">
       <gridHelper args={[size, majorDiv, majorColor, majorColor]} position={[0, -0.00055, 0]} rotation={[0, 0, 0]} />
-      <gridHelper args={[size, majorDiv * minorPerMajor, minorColor, minorColor]} position={[0, -0.0006, 0]} rotation={[0, 0, 0]} />
+      <gridHelper args={[size, majorDiv * orPerMajor, orColor, orColor]} position={[0, -0.0006, 0]} rotation={[0, 0, 0]} />
       <ContactShadows position={[0, 0.002, 0]} opacity={0.28} scale={Math.max(FLOOR_W, FLOOR_D) + 1.6} blur={2.4} far={10} resolution={1024} frames={1} />
     </group>
   );
@@ -203,7 +203,7 @@ function Scene({
 export default function ThreeView() {
   /* URL/setup */
   const params = isBrowser ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const initialMode: Mode = params.get("mode") === "admin" ? "admin" : "player";
+  const initialMode: Mode = params.get("mode") === "ad" ? "ad" : "player";
   const [mode] = useState<Mode>(initialMode);
   const isPlayer = mode === "player";
 
@@ -283,7 +283,7 @@ export default function ThreeView() {
   // Player-editable visibility (persisted)
   const storedShowMain = isBrowser ? localStorage.getItem("seq_showMainGraph") : null;
   const storedShowSecond =
-    isBrowser ? localStorage.getItem("seq_showSecondGraph") ?? localStorage.getItem("seq_showMiniGraph") : null;
+    isBrowser ? localStorage.getItem("seq_showSecondGraph") ?? localStorage.getItem("seq_showiGraph") : null;
 
   const [showMainGraph, setShowMainGraph] = useState<boolean>(storedShowMain ? storedShowMain === "1" : true);
   const [showSecond, setShowSecond] = useState<boolean>(storedShowSecond ? storedShowSecond === "1" : true);
@@ -294,7 +294,7 @@ export default function ThreeView() {
   useEffect(() => {
     if (!isBrowser) return;
     localStorage.setItem("seq_showSecondGraph", showSecond ? "1" : "0");
-    localStorage.removeItem("seq_showMiniGraph");
+    localStorage.removeItem("seq_showiGraph");
   }, [showSecond]);
 
   // 3D panel positions
@@ -312,7 +312,7 @@ export default function ThreeView() {
   const EXTRA_CHROME = 12;
 
   // NEW: ensure graphs never get too short -> we auto-grow dockPx if needed
-  const MIN_GRAPH_PX = isCompact ? 120 : 140;
+  const MIN_GRAPH_PX = isCompact ? 100 : 120;
 
   const [dockPx, setDockPx] = useState(() => {
     const base = Math.round((isBrowser ? window.innerHeight : 900) * dockPct);
