@@ -312,7 +312,7 @@ export default function ThreeView() {
   const EXTRA_CHROME = 12;
 
   // NEW: ensure graphs never get too short -> we auto-grow dockPx if needed
-  const MIN_GRAPH_PX = isCompact ? 100 : 120;
+  const MIN_GRAPH_PX = isCompact ? 110 : 130;
 
   const [dockPx, setDockPx] = useState(() => {
     const base = Math.round((isBrowser ? window.innerHeight : 900) * dockPct);
