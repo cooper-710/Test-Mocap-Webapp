@@ -43,6 +43,13 @@ const joinPath = (a: string, b: string) =>
   `${a.replace(/\/+$/, "")}/${b.replace(/^\/+/, "")}`;
 const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 
+/** Camera home preset (open + focus view) */
+const HOME_CAM = {
+  pos: [3.6, 2.5, 5.4] as [number, number, number],
+  target: [0, 1.0, 0] as [number, number, number],
+  fov: 42,
+};
+
 /* ------------------------------------------------------------------ */
 /* Adaptive Lighting Rig                                               */
 /* ------------------------------------------------------------------ */
@@ -203,7 +210,7 @@ function Scene({
 export default function ThreeView() {
   /* URL/setup */
   const params = isBrowser ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const initialMode: Mode = params.get("mode") === "ad" ? "ad" : "player";
+  const initialMode: Mode = params.get("mode") === "admin" ? "admin" : "player";
   const [mode] = useState<Mode>(initialMode);
   const isPlayer = mode === "player";
 
@@ -311,7 +318,7 @@ export default function ThreeView() {
   const ROW_GAP = 14;
   const EXTRA_CHROME = 12;
 
-  // NEW: ensure graphs never get too short -> we auto-grow dockPx if needed
+  // ensure graphs never get too short -> we auto-grow dockPx if needed
   const MIN_GRAPH_PX = isCompact ? 110 : 130;
 
   const [dockPx, setDockPx] = useState(() => {
@@ -550,7 +557,7 @@ export default function ThreeView() {
     }
     if (pts.length === 0) return { pts: [], dur: 0 };
     const t0 = pts[0].t ?? 0;
-    const t1 = pts[pts.length - 1].t ?? 0;
+       const t1 = pts[pts.length - 1].t ?? 0;
     const dur = Math.max(0, t1 - t0);
     const normalized: SeriesPoint[] = pts.map((p) => ({ t: (p.t ?? 0) - t0, value: p.value }));
     return { pts: normalized, dur };
@@ -663,21 +670,23 @@ export default function ThreeView() {
     [duration, jsonDuration, snapFrames]
   );
 
-  const toolbarVars = (isPlayer
-    ? ({ ["--brand-img" as any]: "56px", ["--brand-text" as any]: "24px" })
-    : ({ ["--brand-img" as any]: "28px", ["--brand-text" as any]: "18px" })) as React.CSSProperties;
-
-  const availableGraphs = (series ? 1 : 0) + (seriesB ? 1 : 0);
-  const activeGraphCount = Math.min(requestedGraphCount, availableGraphs);
-
-  const shouldShowBottomDock =
-    panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0;
-
-  const dockHeightPx = shouldShowBottomDock ? dockPx : 0;
-
   /* Controls + Camera refs for shortcuts */
   const controlsRef = useRef<any>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+
+  // Apply home view on mount and whenever player/session changes
+  useEffect(() => {
+    if (!controlsRef.current || !cameraRef.current) return;
+    const cam = cameraRef.current;
+    const ctrls = controlsRef.current;
+
+    cam.position.set(...HOME_CAM.pos);
+    cam.fov = HOME_CAM.fov;
+    cam.updateProjectionMatrix();
+
+    ctrls.target.set(...HOME_CAM.target);
+    ctrls.update();
+  }, [playerName, session]);
 
   /* Keyboard shortcuts */
   useEffect(() => {
@@ -691,12 +700,33 @@ export default function ThreeView() {
       else if (key === "arrowleft") { e.preventDefault(); if (duration > 0) setTime((t) => Math.max(0, snapFrames ? Math.round((t - step) * FPS) / FPS : t - step)); }
       else if (key === "arrowup") { e.preventDefault(); setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s + 0.1) * 10) / 10))); }
       else if (key === "arrowdown") { e.preventDefault(); setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s - 0.1) * 10) / 10))); }
-      else if (key === "f") { e.preventDefault(); controlsRef.current?.target?.set(0, 1, 0); controlsRef.current?.update?.(); cameraRef.current?.position.set(4, 3, 6); }
+      else if (key === "f") {
+        e.preventDefault();
+        controlsRef.current?.target?.set(...HOME_CAM.target);
+        controlsRef.current?.update?.();
+        if (cameraRef.current) {
+          cameraRef.current.position.set(...HOME_CAM.pos);
+          cameraRef.current.fov = HOME_CAM.fov;
+          cameraRef.current.updateProjectionMatrix();
+        }
+      }
       else if (key === "g") { e.preventDefault(); setShowSecond((v) => !v); }
     };
     window.addEventListener("keydown", onKeyDown, { passive: false });
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [duration, snapFrames]);
+
+  const toolbarVars = (isPlayer
+    ? ({ ["--brand-img" as any]: "56px", ["--brand-text" as any]: "24px" })
+    : ({ ["--brand-img" as any]: "28px", ["--brand-text" as any]: "18px" })) as React.CSSProperties;
+
+  const availableGraphs = (series ? 1 : 0) + (seriesB ? 1 : 0);
+  const activeGraphCount = Math.min(requestedGraphCount, availableGraphs);
+
+  const shouldShowBottomDock =
+    panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0;
+
+  const dockHeightPx = shouldShowBottomDock ? dockPx : 0;
 
   /* Render */
   return (
@@ -866,7 +896,7 @@ export default function ThreeView() {
           bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 ? dockPx : 0,
         }}
         dpr={isCompact ? [1, 1.25] : [1, 2]}
-        camera={{ position: [4, 3, 6], fov: 45 }}
+        camera={{ position: HOME_CAM.pos, fov: HOME_CAM.fov }}
         gl={{ antialias: true, powerPreference: isCompact ? "low-power" : "high-performance" }}
         onCreated={({ gl, camera, scene }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
@@ -893,7 +923,7 @@ export default function ThreeView() {
           maxDistance={12}
           minPolarAngle={0.06}
           maxPolarAngle={Math.PI * 0.92}
-          target={[0, 1, 0]}
+          target={[...HOME_CAM.target]}
         />
 
         {/* In-3D graph panels */}
@@ -963,7 +993,7 @@ export default function ThreeView() {
                 flexDirection: "column",
                 gap: ROW_GAP,
                 overflow: "hidden",
-                minWidth: 0, // ensure children can shrink without causing scroll
+                minWidth: 0,
               }}
             >
               {showMainGraph && series && selectedChannel && (
