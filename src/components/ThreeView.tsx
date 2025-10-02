@@ -43,7 +43,7 @@ const joinPath = (a: string, b: string) =>
   `${a.replace(/\/+$/, "")}/${b.replace(/^\/+/, "")}`;
 const withBase = (p: string) => joinPath(BASE_URL || "/", p);
 
-/** Camera home preset (open + focus view) */
+/** Desired opening camera pose (your “Photo 2” look) */
 const HOME_CAM = {
   pos: [3.6, 2.5, 5.4] as [number, number, number],
   target: [0, 1.0, 0] as [number, number, number],
@@ -72,13 +72,17 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
     fillTarget.current!.position.set(0, aimY, 0);
     rimTarget.current!.position.set(0, aimY, 0);
 
-    const keyPos = toCam.clone().multiplyScalar(6); keyPos.y = 3.0;
+    const keyPos = toCam.clone().multiplyScalar(6);
+    keyPos.y = 3.0;
     keyRef.current!.position.copy(keyPos);
 
-    const fillPos = toCam.clone().multiplyScalar(-5); fillPos.y = 2.2;
+    const fillPos = toCam.clone().multiplyScalar(-5);
+    fillPos.y = 2.2;
     fillRef.current!.position.copy(fillPos);
 
-    const rimPos = new THREE.Vector3(-toCam.z, 0, toCam.x).normalize().multiplyScalar(5.2);
+    const rimPos = new THREE.Vector3(-toCam.z, 0, toCam.x)
+      .normalize()
+      .multiplyScalar(5.2);
     rimPos.y = 3.2;
     rimRef.current!.position.copy(rimPos);
 
@@ -99,8 +103,12 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
 
   return (
     <group>
-      <hemisphereLight intensity={0.50} color={"#dadde2"} groundColor={muted ? "#0a0c10" : "#0d0f13"} />
-      <ambientLight intensity={0.20} />
+      <hemisphereLight
+        intensity={0.5}
+        color={"#dadde2"}
+        groundColor={muted ? "#0a0c10" : "#0d0f13"}
+      />
+      <ambientLight intensity={0.2} />
 
       {/* Warm spot pool at origin — brighter & wider */}
       <spotLight
@@ -133,16 +141,17 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Training Floor (grid unchanged)                                     */
+/* Training Floor (grid unchanged visually)                            */
 /* ------------------------------------------------------------------ */
 
 function TrainingFloor({ muted = false }: { muted?: boolean }) {
   const size = 80;
   const majorDiv = 16;
-  const orPerMajor = 4;
+  const minorPerMajor = 4;
 
+  // Your current tuning
   const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.45);
-  const orColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.10 : 0.16);
+  const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.1 : 0.16);
 
   const groupRef = useRef<THREE.Group>(null);
 
@@ -161,9 +170,25 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
 
   return (
     <group ref={groupRef} name="FloorGrid">
-      <gridHelper args={[size, majorDiv, majorColor, majorColor]} position={[0, -0.00055, 0]} rotation={[0, 0, 0]} />
-      <gridHelper args={[size, majorDiv * orPerMajor, orColor, orColor]} position={[0, -0.0006, 0]} rotation={[0, 0, 0]} />
-      <ContactShadows position={[0, 0.002, 0]} opacity={0.28} scale={Math.max(FLOOR_W, FLOOR_D) + 1.6} blur={2.4} far={10} resolution={1024} frames={1} />
+      <gridHelper
+        args={[size, majorDiv, majorColor, majorColor]}
+        position={[0, -0.00055, 0]}
+        rotation={[0, 0, 0]}
+      />
+      <gridHelper
+        args={[size, majorDiv * minorPerMajor, minorColor, minorColor]}
+        position={[0, -0.0006, 0]}
+        rotation={[0, 0, 0]}
+      />
+      <ContactShadows
+        position={[0, 0.002, 0]}
+        opacity={0.28}
+        scale={Math.max(FLOOR_W, FLOOR_D) + 1.6}
+        blur={2.4}
+        far={10}
+        resolution={1024}
+        frames={1}
+      />
     </group>
   );
 }
@@ -290,25 +315,32 @@ export default function ThreeView() {
   // Player-editable visibility (persisted)
   const storedShowMain = isBrowser ? localStorage.getItem("seq_showMainGraph") : null;
   const storedShowSecond =
-    isBrowser ? localStorage.getItem("seq_showSecondGraph") ?? localStorage.getItem("seq_showiGraph") : null;
+    isBrowser
+      ? localStorage.getItem("seq_showSecondGraph") ?? localStorage.getItem("seq_showMiniGraph")
+      : null;
 
   const [showMainGraph, setShowMainGraph] = useState<boolean>(storedShowMain ? storedShowMain === "1" : true);
   const [showSecond, setShowSecond] = useState<boolean>(storedShowSecond ? storedShowSecond === "1" : true);
 
-  useEffect(() => { if (studio) setShowSecond(false); }, [studio]);
+  // Studio hides secondary automatically (does not overwrite preference)
+  useEffect(() => {
+    if (studio) setShowSecond(false);
+  }, [studio]);
 
-  useEffect(() => { if (isBrowser) localStorage.setItem("seq_showMainGraph", showMainGraph ? "1" : "0"); }, [showMainGraph]);
+  useEffect(() => {
+    if (isBrowser) localStorage.setItem("seq_showMainGraph", showMainGraph ? "1" : "0");
+  }, [showMainGraph]);
   useEffect(() => {
     if (!isBrowser) return;
     localStorage.setItem("seq_showSecondGraph", showSecond ? "1" : "0");
-    localStorage.removeItem("seq_showiGraph");
+    localStorage.removeItem("seq_showMiniGraph");
   }, [showSecond]);
 
   // 3D panel positions
   const [posMain, setPosMain] = useState<[number, number, number]>([3.8, 0.02, -2.6]);
   const [posSecond, setPosSecond] = useState<[number, number, number]>([1.0, 0.02, -4.2]);
 
-  /* Graph dock sizing */
+  /* Graph dock sizing (no vertical/horizontal overflow) */
   const requestedGraphCount = (showMainGraph ? 1 : 0) + (showSecond ? 1 : 0);
   const dockPct = requestedGraphCount === 2 ? 0.3 : requestedGraphCount === 1 ? 0.2 : 0;
 
@@ -318,13 +350,14 @@ export default function ThreeView() {
   const ROW_GAP = 14;
   const EXTRA_CHROME = 12;
 
-  // ensure graphs never get too short -> we auto-grow dockPx if needed
+  // Your chosen minimums
   const MIN_GRAPH_PX = isCompact ? 110 : 130;
 
   const [dockPx, setDockPx] = useState(() => {
     const base = Math.round((isBrowser ? window.innerHeight : 900) * dockPct);
     const rows = requestedGraphCount > 1 ? 2 : 1;
-    const innerChrome = PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME + (rows > 1 ? ROW_GAP : 0);
+    const innerChrome =
+      PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME + (rows > 1 ? ROW_GAP : 0);
     const needed = rows * MIN_GRAPH_PX + innerChrome;
     return Math.max(base, needed);
   });
@@ -334,7 +367,8 @@ export default function ThreeView() {
     const compute = () => {
       const base = Math.round(window.innerHeight * dockPct);
       const rows = requestedGraphCount > 1 ? 2 : 1;
-      const innerChrome = PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME + (rows > 1 ? ROW_GAP : 0);
+      const innerChrome =
+        PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME + (rows > 1 ? ROW_GAP : 0);
       const needed = rows * MIN_GRAPH_PX + innerChrome;
       setDockPx(Math.max(base, needed));
     };
@@ -349,6 +383,7 @@ export default function ThreeView() {
 
   useEffect(() => {
     let cancelled = false;
+
     async function loadManifest(p: string) {
       try {
         const url = withBase(`data/${encodeURIComponent(p)}/index.json?ts=${Date.now()}`);
@@ -372,8 +407,11 @@ export default function ThreeView() {
         setSession(null);
       }
     }
+
     loadManifest(playerName);
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerName, isPlayerLocked]);
 
@@ -382,18 +420,24 @@ export default function ThreeView() {
     if (!manifest || !session) return;
 
     const fileFBX = manifest.files?.[session]?.fbx ?? manifest.fbx ?? "EXPORT.fbx";
-    const fileExcel = manifest.files?.[session]?.excel ?? manifest.excel ?? "Kinematic_Data (1).xlsx";
+    const fileExcel =
+      manifest.files?.[session]?.excel ?? manifest.excel ?? "Kinematic_Data (1).xlsx";
 
-    const fbxPath = withBase(`data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileFBX)}`);
-    const excelPath = withBase(`data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileExcel)}`);
+    const fbxPath = withBase(
+      `data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileFBX)}`
+    );
+    const excelPath = withBase(
+      `data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileExcel)}`
+    );
 
-    // Update URL for shareability
+    // Update URL (player/session/lock) for shareability
     if (isBrowser) {
       const sp = new URLSearchParams(window.location.search);
       sp.set("mode", isPlayer ? "player" : "admin");
       sp.set("player", playerName);
       sp.set("session", session);
-      if (isPlayerLocked) sp.set("lock", "1"); else sp.delete("lock");
+      if (isPlayerLocked) sp.set("lock", "1");
+      else sp.delete("lock");
       const newUrl = `${window.location.pathname}?${sp.toString()}`;
       if (newUrl !== window.location.href) window.history.replaceState({}, "", newUrl);
     }
@@ -432,7 +476,11 @@ export default function ThreeView() {
   }, [manifest, session, playerName, isPlayer, isPlayerLocked]);
 
   /* Clean blob URLs */
-  useEffect(() => () => { if (fbxUrl?.startsWith("blob:")) URL.revokeObjectURL(fbxUrl); }, [fbxUrl]);
+  useEffect(() => {
+    return () => {
+      if (fbxUrl?.startsWith("blob:")) URL.revokeObjectURL(fbxUrl);
+    };
+  }, [fbxUrl]);
 
   /* Admin uploads */
   function handleFbxFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -444,6 +492,7 @@ export default function ThreeView() {
     setPlaying(true);
     setTime(0);
   }
+
   async function handleJsonFile(e: React.ChangeEvent<HTMLInputElement>) {
     if (mode !== "admin") return;
     const file = e.target.files?.[0];
@@ -462,6 +511,7 @@ export default function ThreeView() {
       alert(`Couldn't read that JSON.\n\n${err?.message ?? err}`);
     }
   }
+
   async function handleExcelFile(e: React.ChangeEvent<HTMLInputElement>) {
     if (mode !== "admin") return;
     const file = e.target.files?.[0];
@@ -470,10 +520,12 @@ export default function ThreeView() {
       const sets = await parseExcelToDataSets(file, FPS);
       const names = Object.keys(sets);
       if (!names.length) throw new Error("No usable sheets found.");
+
       const preferred =
         names.find((n) => /joint.*position/i.test(n)) ??
         names.find((n) => /baseball.*data/i.test(n)) ??
         names[0];
+
       setRowsBySheet(sets);
       setSheetNames(names);
       setSheet(preferred);
@@ -485,6 +537,7 @@ export default function ThreeView() {
       alert(`Couldn't read that Excel file.\n\n${err?.message ?? err}`);
     }
   }
+
   function exportCurrentJSON() {
     if (!rows || rows.length === 0) return;
     const blob = new Blob([JSON.stringify(rows)], { type: "application/json" });
@@ -507,11 +560,13 @@ export default function ThreeView() {
     }
     return null;
   }
+
   function prettyLabel(k: string): string {
     const parts = k.split("/").filter(Boolean);
     const tail = parts.slice(-2).join(" / ");
     return (tail || k).replace(/_/g, " ");
   }
+
   function listNumericChannels(data: Array<Record<string, unknown>>): string[] {
     const set = new Set<string>();
     for (const d of data) {
@@ -524,6 +579,7 @@ export default function ThreeView() {
     }
     return Array.from(set).sort();
   }
+
   function pickPreferredChannel(list: string[]): string | null {
     return (
       list.find((k) => /Wrist.*Velocity/i.test(k)) ??
@@ -533,18 +589,25 @@ export default function ThreeView() {
       null
     );
   }
-  function buildSeries(data: Array<Record<string, unknown>>, channel: string | null): { pts: SeriesPoint[]; dur: number } {
+
+  function buildSeries(
+    data: Array<Record<string, unknown>>,
+    channel: string | null
+  ): { pts: SeriesPoint[]; dur: number } {
     if (!data || data.length === 0 || !channel) return { pts: [], dur: 0 };
+
     const hasT = data.some((d) => typeof (d as any)?.t === "number");
     const hasTime = data.some((d) => typeof (d as any)?.time === "number");
     const tKey: "t" | "time" | null = hasT ? "t" : hasTime ? "time" : null;
 
     const n = data.length;
     const pts: SeriesPoint[] = [];
+
     for (let i = 0; i < n; i++) {
       const row = data[i] as any;
       const rawV = row?.[channel];
       if (typeof rawV !== "number" || !Number.isFinite(rawV)) continue;
+
       let t: number;
       if (tKey) {
         const tv = Number(row[tKey]);
@@ -555,15 +618,22 @@ export default function ThreeView() {
       }
       pts.push({ t, value: rawV });
     }
+
     if (pts.length === 0) return { pts: [], dur: 0 };
+
     const t0 = pts[0].t ?? 0;
-       const t1 = pts[pts.length - 1].t ?? 0;
+    const t1 = pts[pts.length - 1].t ?? 0;
     const dur = Math.max(0, t1 - t0);
-    const normalized: SeriesPoint[] = pts.map((p) => ({ t: (p.t ?? 0) - t0, value: p.value }));
+
+    const normalized: SeriesPoint[] = pts.map((p) => ({
+      t: (p.t ?? 0) - t0,
+      value: p.value,
+    }));
+
     return { pts: normalized, dur };
   }
 
-  /* Recompute when data changes */
+  /* Recompute sheet/channels/series when data changes */
   useEffect(() => {
     if (!rowsBySheet || !sheet) return;
     const newRows = rowsBySheet[sheet];
@@ -582,14 +652,21 @@ export default function ThreeView() {
   }, [rowsBySheet, sheet]);
 
   useEffect(() => {
-    if (!rows || !selectedChannel) { setSeries(null); setJsonDuration(0); return; }
+    if (!rows || !selectedChannel) {
+      setSeries(null);
+      setJsonDuration(0);
+      return;
+    }
     const { pts, dur } = buildSeries(rows, selectedChannel);
     setSeries(pts);
     setJsonDuration(dur);
   }, [rows, selectedChannel]);
 
   useEffect(() => {
-    if (!rows || !selectedChannelB) { setSeriesB(null); return; }
+    if (!rows || !selectedChannelB) {
+      setSeriesB(null);
+      return;
+    }
     const { pts } = buildSeries(rows, selectedChannelB);
     setSeriesB(pts);
   }, [rows, selectedChannelB]);
@@ -600,7 +677,7 @@ export default function ThreeView() {
     setTime((t) => (dur > 0 ? (t % dur + dur) % dur : 0));
   }, []);
 
-  /* Playback loop */
+  /* Playback loop (smooth with snap-to-frames accumulator) */
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
   const subFrameAccRef = useRef<number>(0);
@@ -611,10 +688,13 @@ export default function ThreeView() {
     lastTsRef.current = null;
   }, []);
 
-  useEffect(() => { subFrameAccRef.current = 0; }, [speed, snapFrames, playing, duration]);
+  useEffect(() => {
+    subFrameAccRef.current = 0;
+  }, [speed, snapFrames, playing, duration]);
 
   const startLoop = useCallback(() => {
     cancelLoop();
+
     const loop = (ts: number) => {
       if (lastTsRef.current == null) lastTsRef.current = ts;
       const dtRaw = (ts - lastTsRef.current) / 1000;
@@ -623,6 +703,7 @@ export default function ThreeView() {
 
       setTime((prev) => {
         if (!playing || duration <= 0) return prev;
+
         let s = Math.min(2, Math.max(0.1, speed));
         const delta = dt * s;
 
@@ -649,12 +730,16 @@ export default function ThreeView() {
 
       rafRef.current = requestAnimationFrame(loop);
     };
+
     rafRef.current = requestAnimationFrame(loop);
   }, [cancelLoop, playing, duration, speed, snapFrames]);
 
-  useEffect(() => { startLoop(); return cancelLoop; }, [startLoop, cancelLoop]);
+  useEffect(() => {
+    startLoop();
+    return cancelLoop;
+  }, [startLoop, cancelLoop]);
 
-  /* Seek from graphs */
+  /* Seek from graphs (map JSON time → FBX time) */
   const handleGraphSeek = useCallback(
     (tJson: number) => {
       if (duration > 0 && jsonDuration > 0) {
@@ -670,15 +755,14 @@ export default function ThreeView() {
     [duration, jsonDuration, snapFrames]
   );
 
-  /* Controls + Camera refs for shortcuts */
+  /* Controls + Camera refs for shortcuts and home view */
   const controlsRef = useRef<any>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
-  // Apply home view on mount and whenever player/session changes
-  useEffect(() => {
-    if (!controlsRef.current || !cameraRef.current) return;
+  const applyHomeView = useCallback(() => {
     const cam = cameraRef.current;
     const ctrls = controlsRef.current;
+    if (!cam || !ctrls) return;
 
     cam.position.set(...HOME_CAM.pos);
     cam.fov = HOME_CAM.fov;
@@ -686,49 +770,77 @@ export default function ThreeView() {
 
     ctrls.target.set(...HOME_CAM.target);
     ctrls.update();
-  }, [playerName, session]);
+  }, []);
 
-  /* Keyboard shortcuts */
+  const [controlsMounted, setControlsMounted] = useState(false);
+  const setControlsRef = useCallback((el: any) => {
+    controlsRef.current = el;
+    setControlsMounted(!!el);
+  }, []);
+
+  // Once OrbitControls is mounted, set home
+  useEffect(() => {
+    if (controlsMounted) applyHomeView();
+  }, [controlsMounted, applyHomeView]);
+
+  // Re-apply home when dataset changes
+  useEffect(() => {
+    applyHomeView();
+  }, [playerName, session, applyHomeView]);
+
+  /* Keyboard shortcuts (space, arrows, up/down, F, G) */
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)) return;
+
       const key = e.key.toLowerCase();
       const step = 1 / FPS;
 
-      if (key === " ") { e.preventDefault(); setPlaying((p) => !p); }
-      else if (key === "arrowright") { e.preventDefault(); if (duration > 0) setTime((t) => Math.min(duration, snapFrames ? Math.round((t + step) * FPS) / FPS : t + step)); }
-      else if (key === "arrowleft") { e.preventDefault(); if (duration > 0) setTime((t) => Math.max(0, snapFrames ? Math.round((t - step) * FPS) / FPS : t - step)); }
-      else if (key === "arrowup") { e.preventDefault(); setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s + 0.1) * 10) / 10))); }
-      else if (key === "arrowdown") { e.preventDefault(); setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s - 0.1) * 10) / 10))); }
-      else if (key === "f") {
+      if (key === " ") {
         e.preventDefault();
-        controlsRef.current?.target?.set(...HOME_CAM.target);
-        controlsRef.current?.update?.();
-        if (cameraRef.current) {
-          cameraRef.current.position.set(...HOME_CAM.pos);
-          cameraRef.current.fov = HOME_CAM.fov;
-          cameraRef.current.updateProjectionMatrix();
-        }
+        setPlaying((p) => !p);
+      } else if (key === "arrowright") {
+        e.preventDefault();
+        if (duration > 0)
+          setTime((t) =>
+            Math.min(duration, snapFrames ? Math.round((t + step) * FPS) / FPS : t + step)
+          );
+      } else if (key === "arrowleft") {
+        e.preventDefault();
+        if (duration > 0)
+          setTime((t) =>
+            Math.max(0, snapFrames ? Math.round((t - step) * FPS) / FPS : t - step)
+          );
+      } else if (key === "arrowup") {
+        e.preventDefault();
+        setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s + 0.1) * 10) / 10)));
+      } else if (key === "arrowdown") {
+        e.preventDefault();
+        setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s - 0.1) * 10) / 10)));
+      } else if (key === "f") {
+        e.preventDefault();
+        applyHomeView();
+      } else if (key === "g") {
+        e.preventDefault();
+        setShowSecond((v) => !v);
       }
-      else if (key === "g") { e.preventDefault(); setShowSecond((v) => !v); }
     };
+
     window.addEventListener("keydown", onKeyDown, { passive: false });
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [duration, snapFrames]);
+  }, [duration, snapFrames, applyHomeView]);
 
+  /* Render */
   const toolbarVars = (isPlayer
     ? ({ ["--brand-img" as any]: "56px", ["--brand-text" as any]: "24px" })
     : ({ ["--brand-img" as any]: "28px", ["--brand-text" as any]: "18px" })) as React.CSSProperties;
 
   const availableGraphs = (series ? 1 : 0) + (seriesB ? 1 : 0);
   const activeGraphCount = Math.min(requestedGraphCount, availableGraphs);
-
   const shouldShowBottomDock =
     panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0;
-
   const dockHeightPx = shouldShowBottomDock ? dockPx : 0;
 
-  /* Render */
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden" }}>
       {/* Top bar */}
@@ -738,23 +850,39 @@ export default function ThreeView() {
           <span className="name">SEQUENCE</span>
         </div>
 
-        {/* Player */}
+        {/* Player (pill when locked; select otherwise) */}
         <div className="ctrl">
           <span className="label">Player</span>
           {isPlayerLocked ? (
-            <span className="pill" title={playerName} aria-label="Player">{playerName}</span>
+            <span className="pill" title={playerName} aria-label="Player">
+              {playerName}
+            </span>
           ) : (
             <select className="select" value={playerName} onChange={(e) => setPlayerName(e.target.value)} title={playerName}>
-              {players.map((n) => (<option key={n} value={n}>{n}</option>))}
+              {players.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
             </select>
           )}
         </div>
 
-        {/* Session */}
+        {/* Session picker */}
         <div className="ctrl">
           <span className="label">Session</span>
-          <select className="select" value={session ?? ""} onChange={(e) => setSession(e.target.value)} title={session ?? undefined} disabled={!sessions.length}>
-            {sessions.map((s) => (<option key={s} value={s}>{s}</option>))}
+          <select
+            className="select"
+            value={session ?? ""}
+            onChange={(e) => setSession(e.target.value)}
+            title={session ?? undefined}
+            disabled={!sessions.length}
+          >
+            {sessions.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -796,13 +924,24 @@ export default function ThreeView() {
         <button className="btn primary" onClick={() => setPlaying((p) => !p)} disabled={duration <= 0}>
           {playing ? "Pause" : "Play"}
         </button>
-        <button className="btn" onClick={() => setTime(0)} disabled={duration <= 0}>Reset</button>
+        <button className="btn" onClick={() => setTime(0)} disabled={duration <= 0}>
+          Reset
+        </button>
 
         {/* Sheet + Metrics */}
         <div className="ctrl">
           <span className="label">Sheet</span>
-          <select className="select" value={sheet ?? ""} onChange={(e) => setSheet(e.target.value)} title={sheet ?? undefined}>
-            {sheetNames.map((n) => (<option key={n} value={n}>{n}</option>))}
+          <select
+            className="select"
+            value={sheet ?? ""}
+            onChange={(e) => setSheet(e.target.value)}
+            title={sheet ?? undefined}
+          >
+            {sheetNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -810,16 +949,34 @@ export default function ThreeView() {
           <>
             <div className="ctrl">
               <span className="label">Metric A</span>
-              <select className="select" value={selectedChannel ?? ""} onChange={(e) => setSelectedChannel(e.target.value)} title={selectedChannel ?? undefined}>
-                {channels.map((k) => (<option key={k} value={k}>{k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}</option>))}
+              <select
+                className="select"
+                value={selectedChannel ?? ""}
+                onChange={(e) => setSelectedChannel(e.target.value)}
+                title={selectedChannel ?? undefined}
+              >
+                {channels.map((k) => (
+                  <option key={k} value={k}>
+                    {k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}
+                  </option>
+                ))}
               </select>
             </div>
 
             {!studio && (
               <div className="ctrl">
                 <span className="label">Metric B</span>
-                <select className="select" value={selectedChannelB ?? ""} onChange={(e) => setSelectedChannelB(e.target.value)} title={selectedChannelB ?? undefined}>
-                  {channels.map((k) => (<option key={k} value={k}>{k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}</option>))}
+                <select
+                  className="select"
+                  value={selectedChannelB ?? ""}
+                  onChange={(e) => setSelectedChannelB(e.target.value)}
+                  title={selectedChannelB ?? undefined}
+                >
+                  {channels.map((k) => (
+                    <option key={k} value={k}>
+                      {k.split("/").slice(-2).join(" / ").replace(/_/g, " ")}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}
@@ -838,7 +995,7 @@ export default function ThreeView() {
           </label>
         )}
 
-        {/* Admin-only */}
+        {/* Admin-only layout & snap */}
         {mode === "admin" && (
           <>
             <div className="ctrl">
@@ -891,12 +1048,17 @@ export default function ThreeView() {
         key={`${playerName}:${session ?? "none"}`}
         style={{
           position: "absolute",
-          left: 0, right: 0, top: 0,
+          left: 0,
+          right: 0,
+          top: 0,
           touchAction: "none",
-          bottom: panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 ? dockPx : 0,
+          bottom:
+            panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0
+              ? dockPx
+              : 0,
         }}
         dpr={isCompact ? [1, 1.25] : [1, 2]}
-        camera={{ position: HOME_CAM.pos, fov: HOME_CAM.fov }}
+        camera={{ position: [...HOME_CAM.pos], fov: HOME_CAM.fov }}
         gl={{ antialias: true, powerPreference: isCompact ? "low-power" : "high-performance" }}
         onCreated={({ gl, camera, scene }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
@@ -910,13 +1072,21 @@ export default function ThreeView() {
           scene.fog = new THREE.FogExp2("#0b0e12", 0.055);
           // @ts-expect-error
           scene.toneMappingExposure = 1.12;
+
+          // Ensure home view once everything is mounted
+          requestAnimationFrame(() => applyHomeView());
         }}
       >
-        <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} mutedGrid={studio} />
+        <Scene
+          fbxUrl={fbxUrl}
+          time={time}
+          onReadyDuration={onReadyDuration}
+          mutedGrid={studio}
+        />
 
         {/* allow low angles so you can look UP at the figure */}
         <OrbitControls
-          ref={controlsRef}
+          ref={setControlsRef}
           enableDamping
           dampingFactor={0.06}
           minDistance={2}
@@ -980,8 +1150,8 @@ export default function ThreeView() {
             height: dockPx,
             padding: "12px 12px calc(14px + env(safe-area-inset-bottom, 0px))",
             boxSizing: "border-box",
-            overflow: "hidden",          // lock both axes
-            minWidth: 0,                 // avoid horizontal overflow in flex children
+            overflow: "hidden",
+            minWidth: 0,
           }}
         >
           {activeGraphCount > 0 ? (
@@ -1004,8 +1174,9 @@ export default function ThreeView() {
                   fbxDuration={duration || 0}
                   height={
                     Math.floor(
-                      (dockPx - (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) - ((requestedGraphCount - 1) * ROW_GAP)) /
-                      (requestedGraphCount > 1 ? 2 : 1)
+                      (dockPx -
+                        (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) -
+                        ((requestedGraphCount - 1) * ROW_GAP)) / (requestedGraphCount > 1 ? 2 : 1)
                     ) - 1
                   }
                   title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`}
@@ -1021,8 +1192,9 @@ export default function ThreeView() {
                   fbxDuration={duration || 0}
                   height={
                     Math.floor(
-                      (dockPx - (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) - ((requestedGraphCount - 1) * ROW_GAP)) /
-                      (requestedGraphCount > 1 ? 2 : 1)
+                      (dockPx -
+                        (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) -
+                        ((requestedGraphCount - 1) * ROW_GAP)) / (requestedGraphCount > 1 ? 2 : 1)
                     ) - 1
                   }
                   title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`}
@@ -1035,7 +1207,7 @@ export default function ThreeView() {
         </div>
       )}
 
-      {/* Right-docked graphs (unchanged; may scroll internally) */}
+      {/* Right-docked graphs */}
       {panelMode === "docked" && graphDock === "right" && requestedGraphCount > 0 && (
         <div
           className="panel-wrap"
@@ -1089,7 +1261,7 @@ export default function ThreeView() {
         </div>
       )}
 
-      {/* Theme (neutral graphite — no blue tint) */}
+      {/* Theme & polish (neutral graphite — no blue tint) */}
       <style>{`
         .toolbar, .panel-wrap, .select, .btn {
           font-family: Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
