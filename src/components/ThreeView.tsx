@@ -51,7 +51,7 @@ const HOME_CAM = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Adaptive Lighting Rig                                               */
+/* Adaptive Lighting Rig  (BRIGHTER CHARACTER, minimal scene impact)   */
 /* ------------------------------------------------------------------ */
 
 function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
@@ -63,6 +63,10 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
   const fillTarget = useRef<THREE.Object3D>(null);
   const rimTarget = useRef<THREE.Object3D>(null);
 
+  // Extra tight spotlight that punches the stick figure without washing the grid.
+  const kickerRef = useRef<THREE.SpotLight>(null);
+  const kickerTarget = useRef<THREE.Object3D>(null);
+
   useFrame(() => {
     const aimY = 1.0;
     const subject = new THREE.Vector3(0, aimY, 0);
@@ -71,71 +75,101 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
     keyTarget.current!.position.set(0, aimY, 0);
     fillTarget.current!.position.set(0, aimY, 0);
     rimTarget.current!.position.set(0, aimY, 0);
+    kickerTarget.current!.position.set(0, 1.1, 0);
 
-    const keyPos = toCam.clone().multiplyScalar(6);
-    keyPos.y = 3.0;
+    // Camera-relative three-point positions
+    const keyPos = toCam.clone().multiplyScalar(6.2);
+    keyPos.y = 3.2;
     keyRef.current!.position.copy(keyPos);
 
-    const fillPos = toCam.clone().multiplyScalar(-5);
-    fillPos.y = 2.2;
+    const fillPos = toCam.clone().multiplyScalar(-5.2);
+    fillPos.y = 2.4;
     fillRef.current!.position.copy(fillPos);
 
     const rimPos = new THREE.Vector3(-toCam.z, 0, toCam.x)
       .normalize()
-      .multiplyScalar(5.2);
-    rimPos.y = 3.2;
+      .multiplyScalar(5.6);
+    rimPos.y = 3.4;
     rimRef.current!.position.copy(rimPos);
+
+    // Character kicker stays near front-right, low angle
+    kickerRef.current!.position.set(1.25, 1.9, 1.25);
 
     keyRef.current!.target = keyTarget.current!;
     fillRef.current!.target = fillTarget.current!;
     rimRef.current!.target = rimTarget.current!;
+    kickerRef.current!.target = kickerTarget.current!;
     keyRef.current!.target.updateMatrixWorld();
     fillRef.current!.target.updateMatrixWorld();
     rimRef.current!.target.updateMatrixWorld();
+    kickerRef.current!.target.updateMatrixWorld();
 
-    // Brighter adaptive exposure with distance comp
+    // Slightly brighter adaptive exposure with distance compensation.
     const dist = camera.position.length();
-    const base = 1.12;
-    const expo = THREE.MathUtils.clamp(base + (7 - dist) * 0.06, 1.02, 1.34);
+    const base = 1.22; // was ~1.12
+    const expo = THREE.MathUtils.clamp(base + (7 - dist) * 0.06, 1.08, 1.46);
     // @ts-expect-error
     scene.toneMappingExposure = expo;
   });
 
   return (
     <group>
+      {/* Softer sky fill, a touch brighter */}
       <hemisphereLight
-        intensity={0.5}
-        color={"#dadde2"}
+        intensity={0.7}
+        color={"#e6eaf0"}
         groundColor={muted ? "#0a0c10" : "#0d0f13"}
       />
-      <ambientLight intensity={0.2} />
+      {/* Lift shadows on thin limbs */}
+      <ambientLight intensity={0.35} />
 
-      {/* Warm spot pool at origin — brighter & wider */}
+      {/* Broad warm pool from above */}
       <spotLight
         color={"#ffdfbf"}
-        intensity={2.0}
-        position={[0, 6.4, 0]}
-        angle={Math.PI * 0.32}
-        penumbra={0.75}
-        distance={26}
+        intensity={3.0}           // was 2.0
+        position={[0, 6.6, 0]}
+        angle={Math.PI * 0.34}
+        penumbra={0.9}
+        distance={30}
+        decay={2}
         castShadow={false}
       />
 
-      {/* Subtle warm fill near torso for mid-tones */}
-      <pointLight color={"#ffe9cf"} intensity={0.6} distance={3.8} position={[0, 1.2, 0]} />
+      {/* Local torso fill (helps center mass) */}
+      <pointLight
+        color={"#ffe9cf"}
+        intensity={0.9}           // was 0.6
+        distance={4.5}
+        decay={2}
+        position={[0, 1.2, 0]}
+      />
 
-      {/* Key / Fill / Rim */}
-      <directionalLight ref={keyRef} color={"#ffd8b8"} intensity={1.5} castShadow={false}>
+      {/* Key / Fill / Rim — higher intensity & slightly whiter */}
+      <directionalLight ref={keyRef} color={"#fff3e2"} intensity={2.4} castShadow={false}>
         <object3D ref={keyTarget} />
       </directionalLight>
 
-      <directionalLight ref={fillRef} color={"#e6e9ee"} intensity={0.42} castShadow={false}>
+      <directionalLight ref={fillRef} color={"#eef2f8"} intensity={0.85} castShadow={false}>
         <object3D ref={fillTarget} />
       </directionalLight>
 
-      <directionalLight ref={rimRef} color={"#a7c7ff"} intensity={0.95} castShadow={false}>
+      <directionalLight ref={rimRef} color={"#bcd6ff"} intensity={1.35} castShadow={false}>
         <object3D ref={rimTarget} />
       </directionalLight>
+
+      {/* Tight “character kicker” — crisp highlight on limbs without lighting the whole floor */}
+      <spotLight
+        ref={kickerRef}
+        color={"#ffffff"}
+        intensity={2.8}
+        angle={Math.PI * 0.22}
+        penumbra={1}
+        distance={6}
+        decay={2}
+        castShadow={false}
+      >
+        <object3D ref={kickerTarget} />
+      </spotLight>
     </group>
   );
 }
@@ -1063,7 +1097,7 @@ export default function ThreeView() {
         onCreated={({ gl, camera, scene }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.12;
+          gl.toneMappingExposure = 1.22; // slightly brighter baseline
           // @ts-expect-error
           gl.physicallyCorrectLights = true;
           gl.shadowMap.enabled = false;
@@ -1071,7 +1105,7 @@ export default function ThreeView() {
 
           scene.fog = new THREE.FogExp2("#0b0e12", 0.055);
           // @ts-expect-error
-          scene.toneMappingExposure = 1.12;
+          scene.toneMappingExposure = 1.22;
 
           // Ensure home view once everything is mounted
           requestAnimationFrame(() => applyHomeView());
@@ -1161,7 +1195,7 @@ export default function ThreeView() {
                 width: "100%",
                 display: "flex",
                 flexDirection: "column",
-                gap: ROW_GAP,
+                gap: 14,
                 overflow: "hidden",
                 minWidth: 0,
               }}
@@ -1175,8 +1209,8 @@ export default function ThreeView() {
                   height={
                     Math.floor(
                       (dockPx -
-                        (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) -
-                        ((requestedGraphCount - 1) * ROW_GAP)) / (requestedGraphCount > 1 ? 2 : 1)
+                        (12 + 34 + 12) - // PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME
+                        ((requestedGraphCount - 1) * 14)) / (requestedGraphCount > 1 ? 2 : 1)
                     ) - 1
                   }
                   title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`}
@@ -1193,8 +1227,8 @@ export default function ThreeView() {
                   height={
                     Math.floor(
                       (dockPx -
-                        (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) -
-                        ((requestedGraphCount - 1) * ROW_GAP)) / (requestedGraphCount > 1 ? 2 : 1)
+                        (12 + 34 + 12) -
+                        ((requestedGraphCount - 1) * 14)) / (requestedGraphCount > 1 ? 2 : 1)
                     ) - 1
                   }
                   title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`}
