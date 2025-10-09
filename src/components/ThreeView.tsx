@@ -51,7 +51,7 @@ const HOME_CAM = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Adaptive Lighting Rig  (BRIGHTER CHARACTER, minimal scene impact)   */
+/* Adaptive Lighting Rig  (bright character, minimal scene impact)     */
 /* ------------------------------------------------------------------ */
 
 function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
@@ -63,7 +63,6 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
   const fillTarget = useRef<THREE.Object3D>(null);
   const rimTarget = useRef<THREE.Object3D>(null);
 
-  // Extra tight spotlight that punches the stick figure without washing the grid.
   const kickerRef = useRef<THREE.SpotLight>(null);
   const kickerTarget = useRef<THREE.Object3D>(null);
 
@@ -77,7 +76,6 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
     rimTarget.current!.position.set(0, aimY, 0);
     kickerTarget.current!.position.set(0, 1.1, 0);
 
-    // Camera-relative three-point positions
     const keyPos = toCam.clone().multiplyScalar(6.2);
     keyPos.y = 3.2;
     keyRef.current!.position.copy(keyPos);
@@ -92,7 +90,6 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
     rimPos.y = 3.4;
     rimRef.current!.position.copy(rimPos);
 
-    // Character kicker stays near front-right, low angle
     kickerRef.current!.position.set(1.25, 1.9, 1.25);
 
     keyRef.current!.target = keyTarget.current!;
@@ -104,9 +101,9 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
     rimRef.current!.target.updateMatrixWorld();
     kickerRef.current!.target.updateMatrixWorld();
 
-    // Slightly brighter adaptive exposure with distance compensation.
+    // Slightly brighter adaptive exposure.
     const dist = camera.position.length();
-    const base = 1.22; // was ~1.12
+    const base = 1.22;
     const expo = THREE.MathUtils.clamp(base + (7 - dist) * 0.06, 1.08, 1.46);
     // @ts-expect-error
     scene.toneMappingExposure = expo;
@@ -114,19 +111,12 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
 
   return (
     <group>
-      {/* Softer sky fill, a touch brighter */}
-      <hemisphereLight
-        intensity={0.7}
-        color={"#e6eaf0"}
-        groundColor={muted ? "#0a0c10" : "#0d0f13"}
-      />
-      {/* Lift shadows on thin limbs */}
+      <hemisphereLight intensity={0.7} color={"#e6eaf0"} groundColor={muted ? "#0a0c10" : "#0d0f13"} />
       <ambientLight intensity={0.35} />
 
-      {/* Broad warm pool from above */}
       <spotLight
         color={"#ffdfbf"}
-        intensity={3.0}           // was 2.0
+        intensity={3.0}
         position={[0, 6.6, 0]}
         angle={Math.PI * 0.34}
         penumbra={0.9}
@@ -135,16 +125,8 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
         castShadow={false}
       />
 
-      {/* Local torso fill (helps center mass) */}
-      <pointLight
-        color={"#ffe9cf"}
-        intensity={0.9}           // was 0.6
-        distance={4.5}
-        decay={2}
-        position={[0, 1.2, 0]}
-      />
+      <pointLight color={"#ffe9cf"} intensity={0.9} distance={4.5} decay={2} position={[0, 1.2, 0]} />
 
-      {/* Key / Fill / Rim — higher intensity & slightly whiter */}
       <directionalLight ref={keyRef} color={"#fff3e2"} intensity={2.4} castShadow={false}>
         <object3D ref={keyTarget} />
       </directionalLight>
@@ -157,7 +139,6 @@ function AdaptiveLightRig({ muted = false }: { muted?: boolean }) {
         <object3D ref={rimTarget} />
       </directionalLight>
 
-      {/* Tight “character kicker” — crisp highlight on limbs without lighting the whole floor */}
       <spotLight
         ref={kickerRef}
         color={"#ffffff"}
@@ -183,7 +164,6 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
   const majorDiv = 16;
   const minorPerMajor = 4;
 
-  // Your current tuning
   const majorColor = new THREE.Color(1, 1, 1).multiplyScalar(0.45);
   const minorColor = new THREE.Color(1, 1, 1).multiplyScalar(muted ? 0.1 : 0.16);
 
@@ -204,11 +184,7 @@ function TrainingFloor({ muted = false }: { muted?: boolean }) {
 
   return (
     <group ref={groupRef} name="FloorGrid">
-      <gridHelper
-        args={[size, majorDiv, majorColor, majorColor]}
-        position={[0, -0.00055, 0]}
-        rotation={[0, 0, 0]}
-      />
+      <gridHelper args={[size, majorDiv, majorColor, majorColor]} position={[0, -0.00055, 0]} rotation={[0, 0, 0]} />
       <gridHelper
         args={[size, majorDiv * minorPerMajor, minorColor, minorColor]}
         position={[0, -0.0006, 0]}
@@ -356,7 +332,6 @@ export default function ThreeView() {
   const [showMainGraph, setShowMainGraph] = useState<boolean>(storedShowMain ? storedShowMain === "1" : true);
   const [showSecond, setShowSecond] = useState<boolean>(storedShowSecond ? storedShowSecond === "1" : true);
 
-  // Studio hides secondary automatically (does not overwrite preference)
   useEffect(() => {
     if (studio) setShowSecond(false);
   }, [studio]);
@@ -374,17 +349,15 @@ export default function ThreeView() {
   const [posMain, setPosMain] = useState<[number, number, number]>([3.8, 0.02, -2.6]);
   const [posSecond, setPosSecond] = useState<[number, number, number]>([1.0, 0.02, -4.2]);
 
-  /* Graph dock sizing (no vertical/horizontal overflow) */
+  /* Graph dock sizing */
   const requestedGraphCount = (showMainGraph ? 1 : 0) + (showSecond ? 1 : 0);
   const dockPct = requestedGraphCount === 2 ? 0.3 : requestedGraphCount === 1 ? 0.2 : 0;
 
-  // constants used to compute available room and split heights
   const PANEL_PAD_TOP = 12;
-  const PANEL_PAD_BOTTOM = 34; // includes visual bottom padding in the dock
+  const PANEL_PAD_BOTTOM = 34;
   const ROW_GAP = 14;
   const EXTRA_CHROME = 12;
 
-  // Your chosen minimums
   const MIN_GRAPH_PX = isCompact ? 110 : 130;
 
   const [dockPx, setDockPx] = useState(() => {
@@ -464,7 +437,6 @@ export default function ThreeView() {
       `data/${encodeURIComponent(playerName)}/${session}/${encodeURIComponent(fileExcel)}`
     );
 
-    // Update URL (player/session/lock) for shareability
     if (isBrowser) {
       const sp = new URLSearchParams(window.location.search);
       sp.set("mode", isPlayer ? "player" : "admin");
@@ -667,7 +639,6 @@ export default function ThreeView() {
     return { pts: normalized, dur };
   }
 
-  /* Recompute sheet/channels/series when data changes */
   useEffect(() => {
     if (!rowsBySheet || !sheet) return;
     const newRows = rowsBySheet[sheet];
@@ -711,7 +682,7 @@ export default function ThreeView() {
     setTime((t) => (dur > 0 ? (t % dur + dur) % dur : 0));
   }, []);
 
-  /* Playback loop (smooth with snap-to-frames accumulator) */
+  /* Playback loop */
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
   const subFrameAccRef = useRef<number>(0);
@@ -728,7 +699,6 @@ export default function ThreeView() {
 
   const startLoop = useCallback(() => {
     cancelLoop();
-
     const loop = (ts: number) => {
       if (lastTsRef.current == null) lastTsRef.current = ts;
       const dtRaw = (ts - lastTsRef.current) / 1000;
@@ -737,7 +707,6 @@ export default function ThreeView() {
 
       setTime((prev) => {
         if (!playing || duration <= 0) return prev;
-
         let s = Math.min(2, Math.max(0.1, speed));
         const delta = dt * s;
 
@@ -751,7 +720,6 @@ export default function ThreeView() {
         let acc = subFrameAccRef.current + delta;
         const frames = Math.floor(acc / step);
         subFrameAccRef.current = acc - frames * step;
-
         if (frames <= 0) return prev;
 
         let next = prev + frames * step;
@@ -764,7 +732,6 @@ export default function ThreeView() {
 
       rafRef.current = requestAnimationFrame(loop);
     };
-
     rafRef.current = requestAnimationFrame(loop);
   }, [cancelLoop, playing, duration, speed, snapFrames]);
 
@@ -789,7 +756,7 @@ export default function ThreeView() {
     [duration, jsonDuration, snapFrames]
   );
 
-  /* Controls + Camera refs for shortcuts and home view */
+  /* Controls + Camera refs */
   const controlsRef = useRef<any>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
@@ -797,11 +764,9 @@ export default function ThreeView() {
     const cam = cameraRef.current;
     const ctrls = controlsRef.current;
     if (!cam || !ctrls) return;
-
     cam.position.set(...HOME_CAM.pos);
     cam.fov = HOME_CAM.fov;
     cam.updateProjectionMatrix();
-
     ctrls.target.set(...HOME_CAM.target);
     ctrls.update();
   }, []);
@@ -812,21 +777,18 @@ export default function ThreeView() {
     setControlsMounted(!!el);
   }, []);
 
-  // Once OrbitControls is mounted, set home
   useEffect(() => {
     if (controlsMounted) applyHomeView();
   }, [controlsMounted, applyHomeView]);
 
-  // Re-apply home when dataset changes
   useEffect(() => {
     applyHomeView();
   }, [playerName, session, applyHomeView]);
 
-  /* Keyboard shortcuts (space, arrows, up/down, F, G) */
+  /* Keyboard shortcuts */
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)) return;
-
       const key = e.key.toLowerCase();
       const step = 1 / FPS;
 
@@ -836,15 +798,11 @@ export default function ThreeView() {
       } else if (key === "arrowright") {
         e.preventDefault();
         if (duration > 0)
-          setTime((t) =>
-            Math.min(duration, snapFrames ? Math.round((t + step) * FPS) / FPS : t + step)
-          );
+          setTime((t) => Math.min(duration, snapFrames ? Math.round((t + step) * FPS) / FPS : t + step));
       } else if (key === "arrowleft") {
         e.preventDefault();
         if (duration > 0)
-          setTime((t) =>
-            Math.max(0, snapFrames ? Math.round((t - step) * FPS) / FPS : t - step)
-          );
+          setTime((t) => Math.max(0, snapFrames ? Math.round((t - step) * FPS) / FPS : t - step));
       } else if (key === "arrowup") {
         e.preventDefault();
         setSpeed((s) => Math.min(2, Math.max(0.1, Math.round((s + 0.1) * 10) / 10)));
@@ -884,7 +842,7 @@ export default function ThreeView() {
           <span className="name">SEQUENCE</span>
         </div>
 
-        {/* Player (pill when locked; select otherwise) */}
+        {/* Player */}
         <div className="ctrl">
           <span className="label">Player</span>
           {isPlayerLocked ? (
@@ -1017,15 +975,15 @@ export default function ThreeView() {
           </>
         )}
 
-        {/* Graph toggles */}
+        {/* Graph toggles — labels updated */}
         <label className="toggle">
           <input type="checkbox" checked={showMainGraph} onChange={(e) => setShowMainGraph(e.target.checked)} />
-          <span>Primary</span>
+          <span>Metric A</span>
         </label>
         {!studio && (
           <label className="toggle">
             <input type="checkbox" checked={showSecond} onChange={(e) => setShowSecond(e.target.checked)} />
-            <span>Secondary</span>
+            <span>Metric B</span>
           </label>
         )}
 
@@ -1097,7 +1055,7 @@ export default function ThreeView() {
         onCreated={({ gl, camera, scene }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.22; // slightly brighter baseline
+          gl.toneMappingExposure = 1.22;
           // @ts-expect-error
           gl.physicallyCorrectLights = true;
           gl.shadowMap.enabled = false;
@@ -1107,18 +1065,11 @@ export default function ThreeView() {
           // @ts-expect-error
           scene.toneMappingExposure = 1.22;
 
-          // Ensure home view once everything is mounted
           requestAnimationFrame(() => applyHomeView());
         }}
       >
-        <Scene
-          fbxUrl={fbxUrl}
-          time={time}
-          onReadyDuration={onReadyDuration}
-          mutedGrid={studio}
-        />
+        <Scene fbxUrl={fbxUrl} time={time} onReadyDuration={onReadyDuration} mutedGrid={studio} />
 
-        {/* allow low angles so you can look UP at the figure */}
         <OrbitControls
           ref={setControlsRef}
           enableDamping
@@ -1172,7 +1123,7 @@ export default function ThreeView() {
         )}
       </Canvas>
 
-      {/* Docked graphs (bottom) – zero-scroll, exact split, min-height protected */}
+      {/* Bottom dock */}
       {panelMode === "docked" && graphDock === "bottom" && requestedGraphCount > 0 && (
         <div
           className="panel-wrap"
@@ -1195,7 +1146,7 @@ export default function ThreeView() {
                 width: "100%",
                 display: "flex",
                 flexDirection: "column",
-                gap: 14,
+                gap: ROW_GAP,
                 overflow: "hidden",
                 minWidth: 0,
               }}
@@ -1208,9 +1159,8 @@ export default function ThreeView() {
                   fbxDuration={duration || 0}
                   height={
                     Math.floor(
-                      (dockPx -
-                        (12 + 34 + 12) - // PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME
-                        ((requestedGraphCount - 1) * 14)) / (requestedGraphCount > 1 ? 2 : 1)
+                      (dockPx - (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) - ((requestedGraphCount - 1) * ROW_GAP)) /
+                        (requestedGraphCount > 1 ? 2 : 1)
                     ) - 1
                   }
                   title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannel)}`}
@@ -1226,9 +1176,8 @@ export default function ThreeView() {
                   fbxDuration={duration || 0}
                   height={
                     Math.floor(
-                      (dockPx -
-                        (12 + 34 + 12) -
-                        ((requestedGraphCount - 1) * 14)) / (requestedGraphCount > 1 ? 2 : 1)
+                      (dockPx - (PANEL_PAD_TOP + PANEL_PAD_BOTTOM + EXTRA_CHROME) - ((requestedGraphCount - 1) * ROW_GAP)) /
+                        (requestedGraphCount > 1 ? 2 : 1)
                     ) - 1
                   }
                   title={`Signal · ${sheet ? sheet + " · " : ""}${prettyLabel(selectedChannelB)}`}
@@ -1241,7 +1190,7 @@ export default function ThreeView() {
         </div>
       )}
 
-      {/* Right-docked graphs */}
+      {/* Right dock */}
       {panelMode === "docked" && graphDock === "right" && requestedGraphCount > 0 && (
         <div
           className="panel-wrap"
@@ -1250,9 +1199,7 @@ export default function ThreeView() {
             top: isCompact ? 86 : 90,
             right: 12,
             bottom: 12,
-            width: isCompact
-              ? Math.min(380, Math.round((isBrowser ? window.innerWidth : 1200) * 0.55))
-              : 420,
+            width: isCompact ? Math.min(380, Math.round((isBrowser ? window.innerWidth : 1200) * 0.55)) : 420,
             overflow: "hidden",
             minWidth: 0,
           }}
@@ -1295,7 +1242,7 @@ export default function ThreeView() {
         </div>
       )}
 
-      {/* Theme & polish (neutral graphite — no blue tint) */}
+      {/* Theme & polish */}
       <style>{`
         .toolbar, .panel-wrap, .select, .btn {
           font-family: Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
@@ -1381,11 +1328,44 @@ export default function ThreeView() {
           font-weight: 700; box-shadow: 0 6px 18px var(--glow);
         }
 
+        /* Sliders — brand orange (WebKit + Firefox) */
         .slider {
-          -webkit-appearance: none; width: 180px; height: 6px; border-radius: 999px;
+          -webkit-appearance: none;
+          width: 180px; height: 6px; border-radius: 999px;
           background: linear-gradient(90deg, rgba(229,129,43,0.32), rgba(207,106,20,0.22));
           box-shadow: inset 0 1px 1px rgba(255,255,255,0.05), 0 0 0 1px var(--border);
           outline: none;
+          accent-color: var(--accent);
+        }
+        .slider::-webkit-slider-runnable-track {
+          height: 6px; border-radius: 999px;
+          background: linear-gradient(90deg, rgba(229,129,43,0.32), rgba(207,106,20,0.22));
+        }
+        .slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 16px; height: 16px; border-radius: 50%;
+          background: linear-gradient(180deg, #ffa861, #e5812b);
+          border: 1px solid rgba(255,180,120,0.9);
+          box-shadow: 0 0 0 2px rgba(0,0,0,0.25), 0 6px 14px rgba(229,129,43,0.45);
+          margin-top: -5px;
+          cursor: pointer;
+        }
+        .slider:active::-webkit-slider-thumb { transform: scale(1.05); }
+
+        .slider::-moz-range-track {
+          height: 6px; border-radius: 999px;
+          background: linear-gradient(90deg, rgba(229,129,43,0.32), rgba(207,106,20,0.22));
+        }
+        .slider::-moz-range-progress {
+          height: 6px; border-radius: 999px;
+          background: linear-gradient(90deg, rgba(229,129,43,0.50), rgba(207,106,20,0.36));
+        }
+        .slider::-moz-range-thumb {
+          width: 16px; height: 16px; border-radius: 50%;
+          background: linear-gradient(180deg, #ffa861, #e5812b);
+          border: 1px solid rgba(255,180,120,0.9);
+          box-shadow: 0 0 0 2px rgba(0,0,0,0.25), 0 6px 14px rgba(229,129,43,0.45);
+          cursor: pointer;
         }
 
         .toggle { display:flex; align-items:center; gap:6px; color: var(--muted); font-size:12px; }
